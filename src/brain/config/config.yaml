@@ -106,9 +106,9 @@ brain_node:
     enable_com: True  # 是否开启队友间通信，建议打开
 
     rerunLog:
-      enable_tcp: false # 是否通过网络传输 log
-      server_ip: "192.168.230.135:9876" # 开启了 rerun Viewer 的机器地址
-      enable_file: false # 是否将 log 写入本地
+      enable_tcp: true # 是否通过网络传输 log
+      server_ip: "192.168.8.135:9876" # 开启了 rerun Viewer 的机器地址
+      enable_file: true # 是否将 log 写入本地
       log_dir: "/home/booster/Workspace/rrlog" # 本地 log 存储路径, 会在此路径下生成以时间为开头的文件
       max_log_file_mins: 5.0 # 本地 log 最长多少分钟就分片存储. 太大的文件会导致读的时候死机.
       img_interval: 1 #每多少帧图像 log 一次, 如果希望更好的实时性或减少日志大小, 可以调高这个值. 但会造成 log 的时间精度降低.
