@@ -6,6 +6,7 @@ brain_node:
       player_id: 1 # 球员编号，取值范围: 1 | 2 | 3 | 4 | 5
       field_type: "adult_size" # 球场类型: adult_size(14m×9m) | kid_size(9m×6m) | robo_league
       player_role: "goal_keeper" # 球员角色: striker(前锋) | goal_keeper(守门员)
+      player_role: "" # 球员角色: striker(前锋) | goal_keeper(守门员)
       player_start_pos: "right" # 上场位置: right(右侧) | left(左侧)，从己方半场视角
       treat_person_as_robot: false # 是否将人类视为机器人，用于调试。!!!! 正式比赛时必须设置为 false !!!!
       number_of_players: 5 # 场上球员数量
@@ -24,7 +25,7 @@ brain_node:
       odom_factor: 1.2 # 里程计修正系数，odom 报告距离与实际距离的比值
       vx_factor: 0.90 # 前向速度修正系数，修正实际速度比指令偏大的问题
       yaw_offset: 0.0 # 偏航角偏移 (rad)，修正测距时的左右偏差
-      vx_limit: 1.2 # 前向速度上限 (m/s)
+      vx_limit: 1.6 # 前向速度上限 (m/s)
       vy_limit: 0.5 # 横向速度上限 (m/s)
       vtheta_limit: 1.5 # 角速度上限 (rad/s) 
 
