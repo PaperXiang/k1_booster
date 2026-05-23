@@ -182,6 +182,6 @@ brain_node:
 
     # ========== 音效系统 ==========
     sound:
-      enable: true # 是否启用音效
+      enable: false # 是否启用音效
       sound_pack: "espeak" # 音效包名称，espeak 或自定义语音包名称（需放置在 sound_play/sounds/<name>/ 目录下）
  
