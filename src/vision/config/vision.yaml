@@ -1,0 +1,113 @@
+# ========== 相机配置 ==========
+camera:
+  type: realsense # 相机类型: realsense | d-robotics
+
+  # --- 相机内参 ---
+  intrin:
+    fx: 642.414673 # 焦距 X (像素)
+    fy: 641.951172 # 焦距 Y (像素)
+    cx: 639.024414 # 光心 X (像素)
+    cy: 353.080536 # 光心 Y (像素)
+    distortion_model: 0 # 畸变模型类型: 0=无畸变, 1=Brown-Conrady, 2=鱼眼
+    distortion_coeffs: # 畸变系数 [k1, k2, p1, p2, k3]，空数组表示无畸变
+      []
+
+  # --- 相机外参（相机到机器人头部的变换矩阵 4×4） ---
+  extrin:
+    - # 第一行: [r11, r12, r13, tx]
+      - -0.00287664495
+      - -0.265204221
+      - 0.96418798
+      - -0.0141300689
+    - # 第二行: [r21, r22, r23, ty]
+      - -0.999978065
+      - 0.00650897343
+      - -0.00119310198
+      - -0.0292695146
+    - # 第三行: [r31, r32, r33, tz]
+      - -0.00595945911
+      - -0.964170337
+      - -0.265217125
+      - -0.0366915613
+    - # 第四行: [0, 0, 0, 1]
+      - 0
+      - 0
+      - 0
+      - 1
+
+  # --- 相机姿态补偿 ---
+  pitch_compensation: 0 # 俯仰角补偿 (度)
+  yaw_compensation: 0 # 偏航角补偿 (度)
+  z_compensation: 0 # Z 轴高度补偿 (m)
+
+# ========== 目标检测模型 ==========
+detection_model:
+  model_path: ./src/vision/model/k1_realsense_0120.engine # TensorRT 模型文件路径
+  confidence_threshold: 0.2 # 全局置信度阈值（初筛），低于此值的检测结果会被丢弃
+  nms_threshold: 0.4 # 非极大值抑制 (NMS) 阈值，用于去除重叠检测框
+  classnames: [Ball, Goalpost, Person, LCross, TCross, XCross, PenaltyPoint, Opponent, BRMarker] # 检测类别列表
+
+  # --- 后处理配置 ---
+  post_process:
+    single_ball_assumption: false # 是否假设场上只有一个球（启用后会过滤多余的球检测）
+    confidence_thresholds: # 各类别的置信度阈值（精筛），高于全局阈值但低于此值的检测会被过滤
+      Ball: 0.4 # 球
+      Goalpost: 0.4 # 球门柱
+      Person: 0.4 # 人类
+      LCross: 0.3 # L 型标记
+      TCross: 0.3 # T 型标记
+      XCross: 0.3 # X 型标记
+      PenaltyPoint: 0.3 # 罚球点
+      Opponent: 0.4 # 对手机器人
+      BRMarker: 0.2 # BR 标记
+
+# ========== 语义分割模型 ==========
+segmentation_model:
+  model_path: ./src/vision/model/best_seg_orin_10.3.engine # TensorRT 分割模型文件路径
+  confidence_threshold: 0.3 # 分割置信度阈值
+  nms_threshold: 0.9 # 非极大值抑制阈值
+
+# ========== 深度图使用开关 ==========
+use_depth: true # 是否使用深度图进行姿态估计和距离测量
+
+# ========== 球姿态估计器 ==========
+ball_pose_estimator:
+  use_depth: false # 是否使用深度图进行球姿态估计（false 则使用几何方法）
+  radius: 0.091 # 球的半径 (m)，标准足球半径约 0.11m，此处可能为 RoboCup 专用球
+  down_sample_leaf_size: 0.01 # 点云下采样体素大小 (m)
+  cluster_distance_threshold: 0.01 # 点云聚类距离阈值 (m)
+  fitting_distance_threshold: 0.01 # 球面拟合距离阈值 (m)
+  minimum_cluster_size: 150 # 最小聚类点数，少于此值的聚类会被丢弃
+  filter_distance: 1.2 # 距离滤波阈值 (m)，超过此距离的点会被过滤
+  check_ball_height: true # 是否检查球的高度合理性（避免误检测）
+
+# ========== 类人物体姿态估计器 ==========
+human_like_pose_estimator:
+  use_depth: false # 是否使用深度图进行姿态估计
+  down_sample_leaf_size: 0.01 # 点云下采样体素大小 (m)
+  fitting_distance_threshold: 0.01 # 姿态拟合距离阈值 (m)
+  statistic_outlier_multiplier: 0.01 # 统计离群点去除倍数，用于过滤噪声点
+
+# ========== 场地标记姿态估计器 ==========
+field_marker_pose_estimator:
+  refine: false # 是否启用精细化优化（提高精度但增加计算量）
+  line_segment_area_threshold: 75 # 线段区域面积阈值（像素²），小于此值的线段会被过滤
+
+# ========== 相机标定 ==========
+calibration:
+  sync_max_time_diff_ms: 1400 # 图像与深度图同步的最大时间差 (ms)，超过此值认为不同步
+
+  # --- 偏移标定 ---
+  offset:
+    exclude_distance: 2.0 # 标定时排除的距离阈值 (m)，超过此距离的标记点不参与标定
+    zero_translation: true # 是否将平移向量归零（仅标定旋转）
+    field_marker_path: ./src/vision/config/field.yaml # 场地标记配置文件路径
+
+  # --- 手眼标定 ---
+  handeye:
+    calibration_time: 2026-04-11-09-47-23 # 标定时间戳，用于追溯标定版本
+    reprojection_error: 2.5350552245663476 # 重投影误差 (像素)，衡量标定精度
+
+# ========== 其他配置 ==========
+misc:
+  save_data_nonstationary: true # 是否保存非静止状态下的数据（用于调试和数据收集）
