@@ -146,7 +146,7 @@ brain_node:
     rerunLog:
       enable_tcp: true  # 是否通过网络传输 log 到 Rerun Viewer
       server_ip: "192.168.230.135:9876" # Rerun Viewer 服务器地址（IP:端口）
-      enable_file: false # 是否将 log 写入本地文件
+      enable_file: true # 是否将 log 写入本地文件
       log_dir: "/home/booster/Workspace/rrlog" # 本地 log 存储路径，会生成以时间戳开头的文件
       max_log_file_mins: 5.0 # 单个 log 文件最长时长 (分钟)，超过后分片存储，避免文件过大导致读取卡顿
       img_interval: 1 # 图像 log 间隔（帧），每多少帧记录一次图像，提高此值可减少日志大小并提升实时性
