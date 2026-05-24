@@ -24,26 +24,26 @@ brain_node:
       odom_factor: 1.2 # 里程计缩放系数，用于修正 /odometer_state 的 x/y 位移误差。
       vx_factor: 0.90 # 前向速度补偿系数，crabWalk 等动作会用它修正 x/y 实际速度比例。
       yaw_offset: 0.0 # 运动方向角补偿，修正机器人实际移动方向与期望方向的偏差，单位弧度。
-      vx_limit: 1.2 # 全局前后方向速度上限，单位 m/s。
-      vy_limit: 0.5 # 全局左右方向速度上限，单位 m/s。
-      vtheta_limit: 1.5 # 全局旋转角速度上限，单位 rad/s。
+      vx_limit: 0.9 # 全局前后方向速度上限，单位 m/s。
+      vy_limit: 0.45 # 全局左右方向速度上限，单位 m/s。
+      vtheta_limit: 1.2 # 全局旋转角速度上限，单位 rad/s。
 
     # 比赛策略参数，控制找球、追球、调整、踢球、射门和多机协作行为。
     strategy:
       ball_confidence_threshold: 30.0 # 判定球检测可信的置信度阈值，低于该值通常不会更新可靠球位置。
       ball_confidence_decay_rate: 3.0 # 预留：当前未声明/未加载，不影响实际球记忆逻辑。
-      enable_stable_kick: false # 当前 YAML 未被加载到 config->enableStableKick，保持默认 false；补声明和加载后才生效。
+      enable_stable_kick: false # 是否在低风险 kick 前短暂稳定，当前实体安全测试先保持关闭。
       ball_memory_timeout: 3.0 # 看不见球后继续相信历史球位置的最长时间，单位秒。
       tm_ball_dist_threshold: 1.5 # 队友报告的球位置离本机超过该距离时，才认为队友球位置可参考，单位米。
-      limit_near_ball_speed: false # 是否在接近球时限制追球速度，降低撞球或越过球的概率。
-      near_ball_speed_limit: 0.6 # 接近球时的前向速度上限，limit_near_ball_speed 开启时生效，单位 m/s。
-      near_ball_range: 2.0 # 距球小于该距离时认为处于近球区域，单位米。
-      soft_kickoff: false # 代码会读取但当前未声明；用于开球/任意球开球阶段小速度轻推球，需补声明后稳定生效。
-      soft_kickoff_speed: 0.3 # 代码会读取但当前未声明；软开球速度，单位 m/s，需补声明后稳定生效。
-      kick_range: 1.0 # 代码会读取但当前未声明；允许进入踢球动作的最大球距，单位米。
-      kick_theta_range: 0.2 # 代码会读取但当前未声明；允许踢球时球相对机器人朝向的最大偏角，单位弧度。
+      limit_near_ball_speed: true # 是否在接近球时限制追球速度，降低撞球或越过球的概率。
+      near_ball_speed_limit: 0.45 # 接近球时的前向速度上限，limit_near_ball_speed 开启时生效，单位 m/s。
+      near_ball_range: 1.5 # 距球小于该距离时认为处于近球区域，单位米。
+      soft_kickoff: false # 用于开球/任意球开球阶段小速度轻推球，当前单机控球测试保持关闭。
+      soft_kickoff_speed: 0.3 # 软开球速度，单位 m/s。
+      kick_range: 0.7 # 允许进入踢球动作的最大球距，单位米。
+      kick_theta_range: 0.22 # 允许踢球时球相对机器人朝向的最大偏角，单位弧度。
       abort_kick_when_ball_moved: true # 踢球过程中如果球明显移动或丢失，是否提前终止踢球动作。
-      abort_kick_ball_move_threshold: 0.3 # 代码会读取但当前未声明；判定球已被踢远/移动的距离阈值，单位米。
+      abort_kick_ball_move_threshold: 0.3 # 判定球已被踢远/移动的距离阈值，单位米。
       abort_shoot_when_ball_moved: true # 预留：当前未声明/未使用，射门中止逻辑未接入该参数。
       limit_speed_near_border: false # 预留：当前未声明/未使用，靠边限速逻辑未接入该参数。
       near_border_speed_limit: 0.5 # 预留：当前未声明/未使用，靠边限速速度上限未接入。
@@ -69,7 +69,7 @@ brain_node:
         xmax: 1.5 # 当前仅声明未使用；大力射门区域未接入实际决策。
         ymin: -0.3 # 当前仅声明未使用；大力射门区域未接入实际决策。
         ymax: 0.3 # 当前仅声明未使用；大力射门区域未接入实际决策。
-      enable_auto_visual_kick: true # 是否允许调用底层视觉踢球技能 RLVisionKick。
+      enable_auto_visual_kick: false # 是否允许调用底层视觉踢球技能 RLVisionKick；单机控球测试先关闭。
       auto_visual_kick_enable_dist_min: 0.2 # 启用视觉踢球的最小球距，单位米。
       auto_visual_kick_enable_dist_max: 4.0 # 启用视觉踢球的最大球距，单位米。
       auto_visual_kick_enable_angle: 0.8 # 启用视觉踢球时允许的球偏航角范围，单位弧度。

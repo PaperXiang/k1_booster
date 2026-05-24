@@ -39,6 +39,7 @@ void BrainTree::init()
     REGISTER_BUILDER(StandStill)
     REGISTER_BUILDER(CalcKickDir)
     REGISTER_BUILDER(StrikerDecide)
+    REGISTER_BUILDER(SingleRobotDecide)
     REGISTER_BUILDER(CamTrackBall)
     REGISTER_BUILDER(CamFindBall)
     REGISTER_BUILDER(CamFastScan)
@@ -395,6 +396,8 @@ NodeStatus Chase::tick()
         && brain->data->ball.range < brain->config->nearBallRange
     ) {
         vxLimit = min(brain->config->nearBallSpeedLimit, vxLimit);
+        vyLimit = min(vyLimit, max(0.12, brain->config->nearBallSpeedLimit * 0.8));
+        vthetaLimit = min(vthetaLimit, 0.8);
     }
 
     double ballRange = brain->data->ball.range;
@@ -445,7 +448,7 @@ NodeStatus Chase::tick()
         // Keep moving while turning. The previous multiplier could reduce vx
         // almost to zero for angled balls, causing a conservative turn-in-place.
         double turnFactor = sigmoid(fabs(vtheta), 1.35, 1.8);
-        double minForwardFactor = ballRange > 2.0 ? 0.55 : (ballRange > 1.0 ? 0.40 : 0.22);
+        double minForwardFactor = ballRange > 2.0 ? 0.55 : (ballRange > 1.0 ? 0.36 : 0.16);
         vx *= max(minForwardFactor, turnFactor);
 
         // Add lateral cut-in so angled balls are approached on an arc instead
@@ -455,7 +458,10 @@ NodeStatus Chase::tick()
 
         // When the ball is near and far to the side, avoid stepping across it too hard.
         if (ballRange < 0.8) {
-            vy = cap(vy, vyLimit * 0.55, -vyLimit * 0.55);
+            vy = cap(vy, vyLimit * 0.45, -vyLimit * 0.45);
+        }
+        if (ballRange < 0.55 && fabs(ballYaw) > 0.35) {
+            vx = min(vx, vxLimit * 0.45);
         }
     }
 
@@ -853,11 +859,15 @@ NodeStatus Adjust::tick()
     if (fabs(deltaDir) * ballRange < nearThreshold) {
         st = stNear;
     }
+    if (ballRange < 0.9) {
+        st = min(st, stNear);
+        vthetaLimit = min(vthetaLimit, 0.8);
+    }
 
     double thetaRobotField = brain->data->robotPoseToField.theta;
     double tangentialDirRobot = dir_rb_f + M_PI / 2 * (deltaDir > 0 ? -1.0 : 1.0) - thetaRobotField;
     double radialDirRobot = dir_rb_f - thetaRobotField;
-    double sr = cap(ballRange - range, 0.5, 0.0);
+    double sr = cap(ballRange - range, ballRange < 0.9 ? 0.25 : 0.5, 0.0);
 
     vx = st * cos(tangentialDirRobot) + sr * cos(radialDirRobot);
     vy = st * sin(tangentialDirRobot) + sr * sin(radialDirRobot);
@@ -866,7 +876,7 @@ NodeStatus Adjust::tick()
     if (fabs(ballYaw) < noTurnThreshold) {
         vtheta = 0.0;
     }
-    if (fabs(ballYaw) > turnFirstThreshold && fabs(deltaDir) < M_PI / 4) {
+    if (fabs(ballYaw) > turnFirstThreshold * 0.8 && fabs(deltaDir) < M_PI / 3) {
         vx = 0;
         vy = 0;
     }
@@ -1115,6 +1125,64 @@ NodeStatus StrikerDecide::tick() {
     return NodeStatus::SUCCESS;
 }
 
+NodeStatus SingleRobotDecide::tick() {
+    string lastDecision;
+    double chaseThreshold, kickRange, kickThetaRange, kickDirTolerance, ballYTolerance;
+    getInput("decision_in", lastDecision);
+    getInput("chase_threshold", chaseThreshold);
+    getInput("kick_range", kickRange);
+    getInput("kick_theta_range", kickThetaRange);
+    getInput("kick_dir_tolerance", kickDirTolerance);
+    getInput("ball_y_tolerance", ballYTolerance);
+
+    string newDecision = "find";
+    auto color = 0xFFFFFFFF;
+
+    bool ballKnown = brain->tree->getEntry<bool>("ball_location_known");
+    bool ballFresh = brain->msecsSince(brain->data->ball.timePoint) < 900;
+    if (ballKnown && ballFresh && !brain->isBallOut(3.0, 1.5)) {
+        auto ball = brain->data->ball;
+        double ballRange = ball.range;
+        double ballYaw = ball.yawToRobot;
+        double ballX = ball.posToRobot.x;
+        double ballY = ball.posToRobot.y;
+        double deltaDir = fabs(toPInPI(brain->data->kickDir - brain->data->robotBallAngleToField));
+
+        double chaseGate = chaseThreshold * (lastDecision == "chase" ? 0.9 : 1.0);
+        bool ballInKickWindow =
+            ballRange < kickRange &&
+            ballX > 0.12 &&
+            fabs(ballY) < ballYTolerance &&
+            fabs(ballYaw) < kickThetaRange &&
+            deltaDir < kickDirTolerance;
+
+        if (ballRange > chaseGate) {
+            newDecision = "chase";
+            color = 0x0000FFFF;
+        } else if (ballInKickWindow) {
+            newDecision = "kick";
+            color = 0x00FF00FF;
+        } else {
+            newDecision = "adjust";
+            color = 0xFFFF00FF;
+        }
+
+        brain->log->logToScreen(
+            "tree/SingleRobotDecide",
+            format(
+                "Decision: %s range: %.2f yaw: %.2f ballX: %.2f ballY: %.2f deltaDir: %.2f",
+                newDecision.c_str(), ballRange, ballYaw, ballX, ballY, deltaDir
+            ),
+            color
+        );
+    } else {
+        brain->log->logToScreen("tree/SingleRobotDecide", "Decision: find", color);
+    }
+
+    setOutput("decision_out", newDecision);
+    return NodeStatus::SUCCESS;
+}
+
 NodeStatus GoalieDecide::tick()
 {
     // 读取和处理参数
@@ -1188,6 +1256,18 @@ NodeStatus GoalieDecide::tick()
                             format("Decision: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleIsGood: %d", newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleIsGood),
                             color);
     return NodeStatus::SUCCESS;
+}
+
+static void kickWalkCommand(Brain *brain, double angle, double speed, bool alignDuringKick, double vthetaFactor, double vthetaLimit)
+{
+    if (alignDuringKick) {
+        double vx = speed * cos(angle);
+        double vy = speed * sin(angle);
+        double vtheta = cap(angle * vthetaFactor, vthetaLimit, -vthetaLimit);
+        brain->client->setVelocity(vx, vy, vtheta, false, false, false);
+    } else {
+        brain->client->crabWalk(angle, speed);
+    }
 }
 
 tuple<double, double, double> Kick::_calcSpeed() {
@@ -1266,7 +1346,14 @@ NodeStatus Kick::onStart()
             softKickoff
             && (brain->data->isFreekickKickingOff || brain->data->isKickingOff)
             ) speed = softKickoffSpeed;
-        brain->client->crabWalk(angle, speed);
+        kickWalkCommand(
+            brain,
+            angle,
+            speed,
+            getInput<bool>("align_during_kick").value(),
+            getInput<double>("align_vtheta_factor").value(),
+            getInput<double>("align_vtheta_limit").value()
+        );
     } else if (_state == "stablize") {
         brain->client->setVelocity(-0.05, 0, 0, true, false, false);
     }
@@ -1334,7 +1421,14 @@ NodeStatus Kick::onRunning()
                 softKickoff
                 && (brain->data->isFreekickKickingOff || brain->data->isKickingOff)
                 ) speed = softKickoffSpeed;
-                brain->client->crabWalk(angle, speed);
+                kickWalkCommand(
+                    brain,
+                    angle,
+                    speed,
+                    getInput<bool>("align_during_kick").value(),
+                    getInput<double>("align_vtheta_factor").value(),
+                    getInput<double>("align_vtheta_limit").value()
+                );
             }
         return NodeStatus::RUNNING;
     } else if (_state == "kick") {
@@ -1351,7 +1445,14 @@ NodeStatus Kick::onRunning()
             double speed = getInput<double>("speed_limit").value();
             _speed += 0.08;
             speed = min(speed, _speed);
-            brain->client->crabWalk(angle, speed);
+            kickWalkCommand(
+                brain,
+                angle,
+                speed,
+                getInput<bool>("align_during_kick").value(),
+                getInput<double>("align_vtheta_factor").value(),
+                getInput<double>("align_vtheta_limit").value()
+            );
         }
 
         return NodeStatus::RUNNING;

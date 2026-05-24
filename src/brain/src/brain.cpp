@@ -44,10 +44,16 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("strategy.ball_confidence_threshold", 50.0);   
     declare_parameter<double>("strategy.ball_memory_timeout", 3.0);
     declare_parameter<double>("strategy.tm_ball_dist_threshold", 3.0);
+    declare_parameter<bool>("strategy.enable_stable_kick", false);
     declare_parameter<bool>("strategy.limit_near_ball_speed", true);
     declare_parameter<double>("strategy.near_ball_speed_limit", 0.3);
     declare_parameter<double>("strategy.near_ball_range", 4.0);
     declare_parameter<bool>("strategy.abort_kick_when_ball_moved", false);
+    declare_parameter<double>("strategy.abort_kick_ball_move_threshold", 0.3);
+    declare_parameter<bool>("strategy.soft_kickoff", false);
+    declare_parameter<double>("strategy.soft_kickoff_speed", 0.3);
+    declare_parameter<double>("strategy.kick_range", 0.7);
+    declare_parameter<double>("strategy.kick_theta_range", 0.2);
     declare_parameter<bool>("strategy.enable_bypass", false);
     declare_parameter<bool>("strategy.enable_shoot", false);
     declare_parameter<bool>("strategy.enable_directional_kick", false);
@@ -217,6 +223,7 @@ void Brain::loadConfig()
 
     get_parameter("strategy.ball_confidence_threshold", config->ballConfidenceThreshold);
     get_parameter("strategy.tm_ball_dist_threshold", config->tmBallDistThreshold);
+    get_parameter("strategy.enable_stable_kick", config->enableStableKick);
     get_parameter("strategy.limit_near_ball_speed", config->limitNearBallSpeed);
     get_parameter("strategy.near_ball_speed_limit", config->nearBallSpeedLimit);
     get_parameter("strategy.near_ball_range", config->nearBallRange);

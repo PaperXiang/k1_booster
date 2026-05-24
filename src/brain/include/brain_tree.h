@@ -87,6 +87,25 @@ private:
     rclcpp::Time timeLastTick; 
 };
 
+class SingleRobotDecide : public SyncActionNode
+{
+public:
+    SingleRobotDecide(const string &name, const NodeConfig &config, Brain *_brain) : SyncActionNode(name, config), brain(_brain) {}
+    static PortsList providedPorts() {
+        return {
+            InputPort<double>("chase_threshold", 1.0, ""),
+            InputPort<double>("kick_range", 0.65, ""),
+            InputPort<double>("kick_theta_range", 0.22, ""),
+            InputPort<double>("kick_dir_tolerance", 0.28, ""),
+            InputPort<double>("ball_y_tolerance", 0.18, ""),
+            InputPort<string>("decision_in", "", ""),
+            OutputPort<string>("decision_out")};
+    }
+    NodeStatus tick() override;
+private:
+    Brain *brain;
+};
+
 class NewDecide : public SyncActionNode
 {
 public:
@@ -286,6 +305,9 @@ public:
             InputPort<double>("min_msec_kick", 500, ""),
             InputPort<double>("msecs_stablize", 1000, ""),
             InputPort<double>("speed_limit", 1.2, ""),
+            InputPort<bool>("align_during_kick", false, ""),
+            InputPort<double>("align_vtheta_factor", 1.2, ""),
+            InputPort<double>("align_vtheta_limit", 0.45, ""),
         };
     }
     NodeStatus onStart() override;
