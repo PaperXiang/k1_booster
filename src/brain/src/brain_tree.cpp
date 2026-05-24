@@ -434,7 +434,7 @@ NodeStatus Chase::tick()
 
     if (
         brain->config->limitNearBallSpeed
-        && brain->data->ball.range < brain->config->nearBallRange
+        && brain->data->ball.range < min(0.75, brain->config->nearBallRange)
     ) {
         vxLimit = min(brain->config->nearBallSpeedLimit, vxLimit);
     }
@@ -480,19 +480,23 @@ NodeStatus Chase::tick()
         vtheta = ballYaw;
     } else {
         double distToTarget = norm(target_r.x, target_r.y);
-        vx = min(vxLimit, distToTarget);
-        vtheta = targetDir;
+        double forwardDemand = max(ballRange, distToTarget);
+        vx = min(vxLimit, forwardDemand);
+        vtheta = targetDir * 2.20 + ballYaw * 0.60;
         if (fabs(targetDir) < 0.1 && ballRange > 2.0) vtheta = 0.0;
 
-        // Keep moving while turning. The previous multiplier could reduce vx
-        // almost to zero for angled balls, causing a conservative turn-in-place.
-        double turnFactor = sigmoid(fabs(vtheta), 1.35, 1.8);
-        double minForwardFactor = ballRange > 2.0 ? 0.55 : (ballRange > 1.0 ? 0.40 : 0.22);
+        // Keep moving while turning. For angled balls, force a strong forward
+        // component so the robot traces an arc instead of turning in place.
+        double turnFactor = sigmoid(fabs(targetDir), 1.65, 1.2);
+        double minForwardFactor = ballRange > 2.0 ? 0.95 : (ballRange > 1.0 ? 0.82 : 0.55);
         vx *= max(minForwardFactor, turnFactor);
+        if (fabs(targetDir) > 0.25 && ballRange > 0.75) {
+            vx = max(vx, vxLimit * (ballRange > 1.2 ? 0.90 : 0.70));
+        }
 
         // Add lateral cut-in so angled balls are approached on an arc instead
         // of rotating first and walking later.
-        double lateralGain = ballRange > 1.5 ? 0.45 : 0.28;
+        double lateralGain = ballRange > 1.5 ? 0.80 : 0.45;
         vy = cap(target_r.y * lateralGain, vyLimit, -vyLimit);
 
         // When the ball is near and far to the side, avoid stepping across it too hard.
