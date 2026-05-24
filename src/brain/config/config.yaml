@@ -30,7 +30,7 @@
 
     # 比赛策略参数，控制找球、追球、调整、踢球、射门和多机协作行为。
     strategy:
-      ball_confidence_threshold: 30.0 # 判定球检测可信的置信度阈值，低于该值通常不会更新可靠球位置。
+      ball_confidence_threshold: 50.0 # 判定球检测可信的置信度阈值，低于该值通常不会更新可靠球位置。
       ball_confidence_decay_rate: 3.0 # 预留：当前未声明/未加载，不影响实际球记忆逻辑。
       enable_stable_kick: false # 当前 YAML 未被加载到 config->enableStableKick，保持默认 false；补声明和加载后才生效。
       ball_memory_timeout: 3.0 # 看不见球后继续相信历史球位置的最长时间，单位秒。
