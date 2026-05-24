@@ -2075,6 +2075,8 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
 void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
 {
     static rclcpp::Time lastSeenRealBallTime;
+    static rclcpp::Time firstAcquireTime;
+    static int acquireCount = 0;
     double bestConfidence = 0;
     int indexRealBall = -1;  // 认为哪一个球是真的, -1 表示没有检测到球
 
@@ -2130,7 +2132,22 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         data->ball = ballObjs[indexRealBall];
         data->ball.confidence = bestConfidence;
 
-        tree->setEntry<bool>("ball_location_known", true);
+        bool ballWasKnown = tree->getEntry<bool>("ball_location_known");
+        if (!ballWasKnown)
+        {
+            if (acquireCount == 0 || msecsSince(firstAcquireTime) > 250.0)
+            {
+                firstAcquireTime = now;
+                acquireCount = 0;
+            }
+            acquireCount++;
+            tree->setEntry<bool>("ball_location_known", acquireCount >= 2);
+        }
+        else
+        {
+            acquireCount = 0;
+            tree->setEntry<bool>("ball_location_known", true);
+        }
         updateBallOut();
 
         lastSeenRealBallTime = now;
@@ -2141,6 +2158,7 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         log->setTimeNow();
         // log->log("image/detection_boxes_realball", rerun::Clear::FLAT);
         data->ballDetected = false;
+        acquireCount = 0;
         data->ball.boundingBox.xmin = 0;
         data->ball.boundingBox.xmax = 0;
         data->ball.boundingBox.ymin = 0;

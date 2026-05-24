@@ -2,20 +2,11 @@
 
 <root BTCPP_format="4" >
   <BehaviorTree ID="FindBall">
-     <Sequence name="root">
+     <ReactiveSequence name="root">
         <ReactiveSequence>
             <GoBackInField />
-            <CamFastScan />
+            <CamFindBall />
         </ReactiveSequence>
-        <TurnOnSpot rad="3.14"  towards_ball="true"/>
-        <ReactiveSequence>
-            <GoBackInField />
-            <CamFastScan />
-        </ReactiveSequence>
-        <ReactiveSequence>
-          <GoToReadyPosition  vx_limit="0.7" />
-          <Sleep msec="5000" />
-        </ReactiveSequence>
-      </Sequence>
+      </ReactiveSequence>
   </BehaviorTree>
 </root>
