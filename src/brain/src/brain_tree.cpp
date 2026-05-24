@@ -1100,7 +1100,10 @@ NodeStatus StrikerDecide::tick() {
     double kickValue = brain->kickValue(dir_rb_f);
     double threatLevel = brain->threatLevel();
     bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 0.35;
-    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f", kickValue, threatLevel, fabs(deltaDir)));
+    bool visualKickBallWindow = ballX > 0.35 && ballX < 2.5 && fabs(ballY) < 0.55;
+    bool visualKickYawWindow = fabs(ballYaw) < autoVisualKickEnableAngle;
+    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, visualKickBallWindow: %d, visualKickYawWindow: %d",
+        kickValue, threatLevel, fabs(deltaDir), visualKickBallWindow, visualKickYawWindow));
      
 
     string newDecision;
@@ -1120,7 +1123,8 @@ NodeStatus StrikerDecide::tick() {
         brain->data->tmMyCost < 7.0 &&
         ballRange < autoVisualKickEnableDistMax &&
         ballRange > autoVisualKickEnableDistMin &&
-        fabs(ballYaw) < autoVisualKickEnableAngle * 1.3 &&
+        visualKickYawWindow &&
+        visualKickBallWindow &&
         visualKickAligned &&
         ball.posToField.x > brain->config->fieldDimensions.length / 2 - 14.3 &&
         fabs(ball.posToField.y) < 5.0 &&
