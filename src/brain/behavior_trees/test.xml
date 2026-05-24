@@ -1,19 +1,18 @@
-<!-- Obvious Kick-only test: no head scanning/tracking, no body turn planning, no adjust. -->
+<!-- 直接比赛进攻测试: 跳过 GameController 状态门控, 直接进入前锋找球、追球、调整、视觉踢球/射门流程 -->
 
 <root BTCPP_format="4">
+    <include path="./subtrees/subtree_striker_play.xml" />
+    <include path="./subtrees/subtree_auto_standup_and_locate.xml" />
+
     <BehaviorTree ID="MainTree">
         <Sequence name="root">
-            <ReactiveSequence>
-                <Sequence _while="control_state==3">
-                    <Sequence _while="!ball_location_known">
-                        <SetVelocity />
-                        <PlaySound sound="search" />
-                    </Sequence>
-                    <Sequence _while="ball_location_known">
-                        <Kick speed_limit="0.55" min_msec_kick="300" />
-                        <PlaySound sound="exited" _while="ball_range&lt;1.0" />
-                    </Sequence>
-                </Sequence>
+            <RunOnce>
+                <Script code="control_state=3; decision='find'" />
+            </RunOnce>
+            <ReactiveSequence name="直接开始比赛踢球射门">
+                <Speak text="test" />
+                <SubTree ID="AutoGetUpAndLocate" _autoremap="true" />
+                <SubTree ID="StrikerPlay" _autoremap="true" />
             </ReactiveSequence>
         </Sequence>
     </BehaviorTree>
