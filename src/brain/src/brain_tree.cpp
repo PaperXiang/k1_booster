@@ -287,17 +287,19 @@ CamFindBall::CamFindBall(const string &name, const NodeConfig &config, Brain *_b
 
 NodeStatus CamFindBall::tick()
 {
-    const double bodyVtheta = 2.0 * M_PI / 7.0; // 7s per body revolution.
-    const double headPeriod = 3.5;
+    const double bodyVtheta = 1.2; // 5.2s per body revolution; faster than the 7s requirement.
+    const double headPeriod = 2.4;
     const double omega = 2.0 * M_PI / headPeriod;
     const double yawCenter = 0.0;
-    const double yawAmp = 0.55;
-    const double pitchCenter = 0.55;
-    const double pitchAmp = 0.33;
-    const double maxYawRate = 1.0;
-    const double maxPitchRate = 1.2;
-    const double maxYawAcc = 2.0;
-    const double maxPitchAcc = 2.4;
+    const double yawAmp = 1.05;
+    const double pitchCenter = 0.30;
+    const double pitchAmp = 0.34;
+    const double maxYawRate = 2.0;
+    const double maxPitchRate = 1.9;
+    const double baseYawAcc = 6.0;
+    const double basePitchAcc = 6.5;
+    const double minAccScale = 0.55;
+    const double cmdIntervalMSec = 33.0;
     const double acquireWindowMSec = 250.0;
     const int acquireCountThreshold = 2;
 
@@ -338,18 +340,28 @@ NodeStatus CamFindBall::tick()
     _acquireCount = 0;
     _firstAcquireTime = rclcpp::Time(0, 0, RCL_ROS_TIME);
 
+    if (brain->msecsSince(_lastCmdTime) < cmdIntervalMSec)
+    {
+        return NodeStatus::SUCCESS;
+    }
+
     double dt = brain->msecsSince(_lastCmdTime) / 1000.0;
-    dt = cap(dt, 0.10, 0.01);
+    dt = cap(dt, 0.20, cmdIntervalMSec / 1000.0);
 
     double t = (now - _scanStartTime).nanoseconds() / 1e9;
-    double yawRaw = yawCenter + yawAmp * sin(omega * t + M_PI / 2.0);
+    double yawRaw = yawCenter + yawAmp * sin(omega * t);
     double pitchRaw = pitchCenter + pitchAmp * sin(2.0 * omega * t);
 
     double yawRateTarget = cap((yawRaw - _lastYawCmd) / dt, maxYawRate, -maxYawRate);
     double pitchRateTarget = cap((pitchRaw - _lastPitchCmd) / dt, maxPitchRate, -maxPitchRate);
 
-    double yawRate = cap(yawRateTarget, _lastYawRate + maxYawAcc * dt, _lastYawRate - maxYawAcc * dt);
-    double pitchRate = cap(pitchRateTarget, _lastPitchRate + maxPitchAcc * dt, _lastPitchRate - maxPitchAcc * dt);
+    double yawEdgeRatio = cap(fabs(yawRaw - yawCenter) / yawAmp, 1.0, 0.0);
+    double pitchEdgeRatio = cap(fabs(pitchRaw - pitchCenter) / pitchAmp, 1.0, 0.0);
+    double yawAcc = baseYawAcc * (minAccScale + (1.0 - minAccScale) * (1.0 - yawEdgeRatio));
+    double pitchAcc = basePitchAcc * (minAccScale + (1.0 - minAccScale) * (1.0 - pitchEdgeRatio));
+
+    double yawRate = cap(yawRateTarget, _lastYawRate + yawAcc * dt, _lastYawRate - yawAcc * dt);
+    double pitchRate = cap(pitchRateTarget, _lastPitchRate + pitchAcc * dt, _lastPitchRate - pitchAcc * dt);
 
     double yawTarget = _lastYawCmd + yawRate * dt;
     double pitchTarget = _lastPitchCmd + pitchRate * dt;
@@ -360,8 +372,8 @@ NodeStatus CamFindBall::tick()
     brain->log->setTimeNow();
     brain->log->log("debug/CamFindBall",
         rerun::TextLog(format(
-            "phase: lissajous, t: %.2f, pitch: %.2f, yaw: %.2f, vtheta: %.2f",
-            t, pitchTarget, yawTarget, bodyVtheta
+            "phase: lissajous_v2, t: %.2f, pitch: %.2f/raw %.2f rate %.2f acc %.2f, yaw: %.2f/raw %.2f rate %.2f acc %.2f, vtheta: %.2f",
+            t, pitchTarget, pitchRaw, pitchRate, pitchAcc, yawTarget, yawRaw, yawRate, yawAcc, bodyVtheta
         ))
     );
 
