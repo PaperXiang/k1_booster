@@ -23,10 +23,10 @@ struct HeadScanPose {
 HeadScanPose CalcLissajousHeadScanPose(double scanElapsedSec)
 {
     const double yawCenter = 0.0;
-    const double yawAmplitude = 0.95;
+    const double yawAmplitude = 0.9;
     const double pitchCenter = 0.6;
-    const double pitchAmplitude = 0.35;
-    const double phaseOffset = M_PI / 2.0;
+    const double pitchAmplitude = 0.32;
+    const double phaseOffset = 0.0;
     const double lissajousPeriodSec = 3.0;
     const double omega = 2.0 * M_PI / lissajousPeriodSec;
 
@@ -34,6 +34,49 @@ HeadScanPose CalcLissajousHeadScanPose(double scanElapsedSec)
     pose.yaw = yawCenter + yawAmplitude * sin(2.0 * omega * scanElapsedSec + phaseOffset);
     pose.pitch = pitchCenter + pitchAmplitude * sin(omega * scanElapsedSec);
     return pose;
+}
+
+HeadScanPose SmoothHeadScanPose(Brain *brain, HeadScanPose target)
+{
+    const double maxYawSpeed = 1.2;
+    const double maxPitchSpeed = 0.8;
+
+    static bool hasLastPose = false;
+    static HeadScanPose lastPose;
+    static rclcpp::Time lastTime;
+
+    auto now = brain->get_clock()->now();
+    double currentPitch = brain->data->headPitch;
+    double currentYaw = brain->data->headYaw;
+    if (!std::isfinite(currentPitch) || currentPitch < -0.1 || currentPitch > 2.0) currentPitch = target.pitch;
+    if (!std::isfinite(currentYaw) || currentYaw < -1.5 || currentYaw > 1.5) currentYaw = target.yaw;
+
+    if (!hasLastPose)
+    {
+        lastPose.pitch = currentPitch;
+        lastPose.yaw = currentYaw;
+        lastTime = now;
+        hasLastPose = true;
+    }
+
+    double dt = (now - lastTime).nanoseconds() / 1e9;
+    if (dt <= 0.0 || dt > 0.5)
+    {
+        dt = 0.1;
+        lastPose.pitch = currentPitch;
+        lastPose.yaw = currentYaw;
+    }
+
+    double maxYawStep = maxYawSpeed * dt;
+    double maxPitchStep = maxPitchSpeed * dt;
+
+    HeadScanPose smoothed;
+    smoothed.yaw = lastPose.yaw + cap(target.yaw - lastPose.yaw, maxYawStep, -maxYawStep);
+    smoothed.pitch = lastPose.pitch + cap(target.pitch - lastPose.pitch, maxPitchStep, -maxPitchStep);
+
+    lastPose = smoothed;
+    lastTime = now;
+    return smoothed;
 }
 
 } // namespace
@@ -317,8 +360,8 @@ NodeStatus CamFindBall::tick()
         return NodeStatus::SUCCESS;
     } // 没到下条指令的执行时间
 
-    double scanElapsedSec = curTime.seconds();
-    auto pose = CalcLissajousHeadScanPose(scanElapsedSec);
+    auto target = CalcLissajousHeadScanPose(curTime.seconds());
+    auto pose = SmoothHeadScanPose(brain, target);
     brain->client->moveHead(pose.pitch, pose.yaw);
     _timeLastCmd = curTime;
     return NodeStatus::SUCCESS;
@@ -1713,7 +1756,8 @@ NodeStatus CamFastScan::onStart()
 {
     _timeStart = brain->get_clock()->now();
     _timeLastCmd = _timeStart;
-    auto pose = CalcLissajousHeadScanPose(0.0);
+    auto target = CalcLissajousHeadScanPose(_timeStart.seconds());
+    auto pose = SmoothHeadScanPose(brain, target);
     brain->client->moveHead(pose.pitch, pose.yaw);
     return NodeStatus::RUNNING;
 }
@@ -1731,8 +1775,8 @@ NodeStatus CamFastScan::onRunning()
     double timeSinceLastCmd = (curTime - _timeLastCmd).nanoseconds() / 1e6;
     if (timeSinceLastCmd < interval) return NodeStatus::RUNNING;
 
-    double scanElapsedSec = scanElapsedMsec / 1000.0;
-    auto pose = CalcLissajousHeadScanPose(scanElapsedSec);
+    auto target = CalcLissajousHeadScanPose(curTime.seconds());
+    auto pose = SmoothHeadScanPose(brain, target);
     brain->client->moveHead(pose.pitch, pose.yaw);
     _timeLastCmd = curTime;
     return NodeStatus::RUNNING;
