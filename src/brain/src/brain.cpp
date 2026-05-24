@@ -1386,8 +1386,8 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     log->setTimeNow();
     log->logToScreen(
         "tick/gamecontrol",
-        format("Player: %d  Role: %s PrimaryStriker: %s GameState: %s  SubStateType: %s  SubState: %s UnderPenalty: %d isKickoff: %d isSubStateKickoff: %d", 
-            config->playerId, tree->getEntry<string>("player_role").c_str(), isPrimaryStriker() ? "Yes" : "No", gameState.c_str(), gameSubStateType.c_str(), gameSubState.c_str(), isUnderPenalty, isKickOffSide, isSubStateKickOffSide
+        format("球员: %d  角色: %s  主攻: %s  比赛状态: %s  子状态类型: %s  子状态: %s  被罚下: %d  我方开球: %d  子状态我方开球: %d",
+            config->playerId, tree->getEntry<string>("player_role").c_str(), isPrimaryStriker() ? "是" : "否", gameState.c_str(), gameSubStateType.c_str(), gameSubState.c_str(), isUnderPenalty, isKickOffSide, isSubStateKickOffSide
             ),
         0xFFFFFFFF,
         30.0
@@ -2616,14 +2616,14 @@ void Brain::logDebugInfo() {
     string gameState = tree->getEntry<string>("gc_game_state");
     string gameSubState = tree->getEntry<string>("gc_game_sub_state");
     string gameSubStateType = tree->getEntry<string>("gc_game_sub_state_type");
-    string isLead = data->tmImLead ? "ON" : "OFF";
-    string ballOut = tree->getEntry<bool>("ball_out") ? "YES" : "NO";
-    string ballDetected = data->ballDetected ? "YES" : "NO";
+    string isLead = data->tmImLead ? "是" : "否";
+    string ballOut = tree->getEntry<bool>("ball_out") ? "是" : "否";
+    string ballDetected = data->ballDetected ? "是" : "否";
     string decision = tree->getEntry<string>("decision");
-    string freeKickKickingOff = data->isFreekickKickingOff ? "YES" : "NO";
-    string directShoot = data->isDirectShoot ? "YES" : "NO";
-    string primaryStriker = isPrimaryStriker() ? "YES" : "NO";
-    log_(format("Game State: %s, SubState: %s, SubStateType: %s, Lead: %s, Decision: %s, FreeKickKickingOff: %s, DirectShoot: %s, PrimaryStriker: %s",
+    string freeKickKickingOff = data->isFreekickKickingOff ? "是" : "否";
+    string directShoot = data->isDirectShoot ? "是" : "否";
+    string primaryStriker = isPrimaryStriker() ? "是" : "否";
+    log_(format("比赛状态: %s, 子状态: %s, 子状态类型: %s, 主控: %s, 决策: %s, 任意球开球中: %s, 直接射门: %s, 主攻: %s",
         gameState.c_str(), gameSubState.c_str(), gameSubStateType.c_str(), isLead.c_str(), decision.c_str(), freeKickKickingOff.c_str(), directShoot.c_str(), primaryStriker.c_str()));
 
     log->setTimeNow();
@@ -2662,7 +2662,7 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
     try {
         // 检查图像数据是否有效
         if (msg.data.empty() || msg.height == 0 || msg.width == 0) {
-            RCLCPP_WARN(get_logger(), "Received empty depth image");
+            RCLCPP_WARN(get_logger(), "收到空的深度图");
             return;
         }
 
@@ -2672,7 +2672,7 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
         if (msg.encoding == "16UC1" || msg.encoding == "mono16") {
             size_t expected = (size_t)msg.width * msg.height * sizeof(uint16_t);
             if (msg.data.size() < expected) {
-                RCLCPP_ERROR(get_logger(), "Depth mono16 size mismatch");
+                RCLCPP_ERROR(get_logger(), "深度图 mono16 数据大小不匹配");
                 return;
             }
             cv::Mat depthRaw(msg.height, msg.width, CV_16UC1, const_cast<uint8_t*>(msg.data.data()));

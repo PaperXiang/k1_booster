@@ -1109,7 +1109,7 @@ NodeStatus StrikerDecide::tick() {
     brain->log->logToScreen(
         "tree/Decide",
         format(
-            "Decision: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleGoodForKick: %d angleGoodForShoot: %d lead: %d", 
+            "决策: %s 球距: %.2f 球偏角: %.2f 踢球方向: %.2f 人球方向: %.2f 可踢: %d 可射: %d 主控: %d",
             newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleGoodForKick, angleGoodForShoot, brain->data->tmImLead
         ),
         color
@@ -1118,7 +1118,7 @@ NodeStatus StrikerDecide::tick() {
     color = 0xFFFFFFFF;
     if (threatLevel >= 2.0) color = 0xFF0000FF;
     else if (threatLevel >= 1.0) color = 0xFFCC00FF;
-    brain->log->logToScreen("tree/value_threat", format("Threat Level: %.1f, Kick Value: %.1f", threatLevel, kickValue), color, 60);
+    brain->log->logToScreen("tree/value_threat", format("威胁等级: %.1f, 踢球价值: %.1f", threatLevel, kickValue), color, 60);
     return NodeStatus::SUCCESS;
 }
 
@@ -1192,7 +1192,7 @@ NodeStatus GoalieDecide::tick()
 
     setOutput("decision_out", newDecision);
     brain->log->logToScreen("tree/Decide",
-                            format("Decision: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleIsGood: %d", newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleIsGood),
+                            format("决策: %s 球距: %.2f 球偏角: %.2f 踢球方向: %.2f 人球方向: %.2f 角度合适: %d", newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleIsGood),
                             color);
     return NodeStatus::SUCCESS;
 }
