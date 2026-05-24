@@ -922,6 +922,7 @@ NodeStatus Adjust::tick()
     static rclcpp::Time adjustLastImprove(0, 0, RCL_ROS_TIME);
     static double escapeDir = 1.0;
     static bool escapeMode = false;
+    static int adjustEscapeCount = 0;
 
     auto now = brain->get_clock()->now();
     double absDeltaDir = fabs(deltaDir);
@@ -936,6 +937,7 @@ NodeStatus Adjust::tick()
         adjustLastImprove = now;
         escapeDir = 1.0;
         escapeMode = false;
+        adjustEscapeCount = 0;
     } else {
         if (adjustStart.nanoseconds() == 0) adjustStart = now;
         if (adjustLastImprove.nanoseconds() == 0) adjustLastImprove = now;
@@ -950,11 +952,13 @@ NodeStatus Adjust::tick()
         ) {
             escapeMode = true;
             escapeDir *= -1.0;
+            adjustEscapeCount += 1;
             adjustStart = now;
             adjustLastImprove = now;
             bestAdjustDelta = absDeltaDir;
         }
     }
+    brain->tree->setEntry<int>("adjust_escape_count", adjustEscapeCount);
 
     double st = stFar;
     if (fabs(deltaDir) * ballRange < nearThreshold) {
