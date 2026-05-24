@@ -287,19 +287,19 @@ CamFindBall::CamFindBall(const string &name, const NodeConfig &config, Brain *_b
 
 NodeStatus CamFindBall::tick()
 {
-    const double bodyVtheta = 1.0; // 6.3s per body revolution; keep within the 7s requirement.
-    const double headPeriod = 3.2;
+    const double bodyVtheta = 1.2; // 5.2s per body revolution; faster than the 7s requirement.
+    const double headPeriod = 2.4;
     const double omega = 2.0 * M_PI / headPeriod;
     const double yawCenter = 0.0;
     const double yawAmp = 0.75;
-    const double pitchCenter = 0.62;
-    const double pitchAmp = 0.42;
-    const double maxYawRate = 1.4;
-    const double maxPitchRate = 1.6;
-    const double baseYawAcc = 3.2;
-    const double basePitchAcc = 3.8;
-    const double minAccScale = 0.35;
-    const double cmdIntervalMSec = 50.0;
+    const double pitchCenter = 0.30;
+    const double pitchAmp = 0.34;
+    const double maxYawRate = 2.0;
+    const double maxPitchRate = 1.9;
+    const double baseYawAcc = 6.0;
+    const double basePitchAcc = 6.5;
+    const double minAccScale = 0.55;
+    const double cmdIntervalMSec = 33.0;
     const double acquireWindowMSec = 250.0;
     const int acquireCountThreshold = 2;
 
