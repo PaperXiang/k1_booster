@@ -40,8 +40,8 @@ brain_node:
       near_ball_range: 2.0 # 距球小于该距离时认为处于近球区域，单位米。
       soft_kickoff: false # 代码会读取但当前未声明；用于开球/任意球开球阶段小速度轻推球，需补声明后稳定生效。
       soft_kickoff_speed: 0.3 # 代码会读取但当前未声明；软开球速度，单位 m/s，需补声明后稳定生效。
-      kick_range: 1.0 # 代码会读取但当前未声明；允许进入踢球动作的最大球距，单位米。
-      kick_theta_range: 0.2 # 代码会读取但当前未声明；允许踢球时球相对机器人朝向的最大偏角，单位弧度。
+      kick_range: 0.85 # 代码会读取但当前未声明；普通踢球触发最大球距，视觉大脚优先走 auto_visual_kick。
+      kick_theta_range: 0.28 # 代码会读取但当前未声明；普通踢球允许的球偏角，单位弧度。
       abort_kick_when_ball_moved: true # 踢球过程中如果球明显移动或丢失，是否提前终止踢球动作。
       abort_kick_ball_move_threshold: 0.3 # 代码会读取但当前未声明；判定球已被踢远/移动的距离阈值，单位米。
       abort_shoot_when_ball_moved: true # 预留：当前未声明/未使用，射门中止逻辑未接入该参数。
@@ -70,9 +70,9 @@ brain_node:
         ymin: -0.3 # 当前仅声明未使用；大力射门区域未接入实际决策。
         ymax: 0.3 # 当前仅声明未使用；大力射门区域未接入实际决策。
       enable_auto_visual_kick: true # 是否允许调用底层视觉踢球技能 RLVisionKick。
-      auto_visual_kick_enable_dist_min: 0.2 # 启用视觉踢球的最小球距，单位米。
-      auto_visual_kick_enable_dist_max: 4.0 # 启用视觉踢球的最大球距，单位米。
-      auto_visual_kick_enable_angle: 0.8 # 启用视觉踢球时允许的球偏航角范围，单位弧度。
+      auto_visual_kick_enable_dist_min: 0.35 # 启用视觉大脚的最小球距，太近时先调整避免底层技能看不全球。
+      auto_visual_kick_enable_dist_max: 2.8 # 启用视觉大脚的最大球距，避免太远提前进入技能导致踢不到。
+      auto_visual_kick_enable_angle: 0.45 # 启用视觉大脚时允许的球偏航角范围，收窄后确保球在正前方。
       enable_auto_visual_defend: false # 当前守门员自动视觉防守分支未完成，不建议开启。
       cooperation:
         enable_role_switch: true # 是否允许多机协作中根据控球成本动态切换主控/辅助角色。
