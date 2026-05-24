@@ -124,6 +124,7 @@ void BrainTree::initEntry()
     setEntry<int>("control_state", 0);
     setEntry<bool>("assist_chase", false);
     setEntry<bool>("assist_kick", false);
+    setEntry<int>("adjust_escape_count", 0);
     setEntry<bool>("go_manual", false);
 
     setEntry<bool>("we_just_scored", false);
@@ -1145,8 +1146,14 @@ NodeStatus StrikerDecide::tick() {
 
     double kickValue = brain->kickValue(dir_rb_f);
     double threatLevel = brain->threatLevel();
-    bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 0.35;
-    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f", kickValue, threatLevel, fabs(deltaDir)));
+    int adjustEscapeCount = brain->tree->getEntry<int>("adjust_escape_count");
+    bool adjustFallbackKick =
+        adjustEscapeCount >= 2 &&
+        ballRange < 1.2 &&
+        fabs(ballYaw) < autoVisualKickEnableAngle * 1.3 &&
+        fabs(deltaDir) < 0.8;
+    bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 0.35 || adjustFallbackKick;
+    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, adjustFallbackKick: %d, adjustEscapeCount: %d", kickValue, threatLevel, fabs(deltaDir), adjustFallbackKick, adjustEscapeCount));
      
 
     string newDecision;
