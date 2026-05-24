@@ -905,13 +905,57 @@ NodeStatus Adjust::tick()
     double ballRange = brain->data->ball.range;
     double ballYaw = brain->data->ball.yawToRobot;
 
+    static double bestAdjustDelta = 999.0;
+    static rclcpp::Time adjustStart(0, 0, RCL_ROS_TIME);
+    static rclcpp::Time adjustLastImprove(0, 0, RCL_ROS_TIME);
+    static double escapeDir = 1.0;
+    static bool escapeMode = false;
+
+    auto now = brain->get_clock()->now();
+    double absDeltaDir = fabs(deltaDir);
+    bool resetAdjustLoop =
+        ballRange > 1.6 ||
+        !brain->tree->getEntry<bool>("ball_location_known") ||
+        brain->tree->getEntry<string>("decision") != "adjust";
+
+    if (resetAdjustLoop) {
+        bestAdjustDelta = absDeltaDir;
+        adjustStart = now;
+        adjustLastImprove = now;
+        escapeDir = 1.0;
+        escapeMode = false;
+    } else {
+        if (adjustStart.nanoseconds() == 0) adjustStart = now;
+        if (adjustLastImprove.nanoseconds() == 0) adjustLastImprove = now;
+        if (absDeltaDir + 0.04 < bestAdjustDelta) {
+            bestAdjustDelta = absDeltaDir;
+            adjustLastImprove = now;
+            escapeMode = false;
+        } else if (
+            brain->msecsSince(adjustStart) > 900 &&
+            brain->msecsSince(adjustLastImprove) > 450 &&
+            absDeltaDir > 0.25
+        ) {
+            escapeMode = true;
+            escapeDir *= -1.0;
+            adjustStart = now;
+            adjustLastImprove = now;
+            bestAdjustDelta = absDeltaDir;
+        }
+    }
+
     double st = stFar;
     if (fabs(deltaDir) * ballRange < nearThreshold) {
         st = stNear;
     }
+    if (escapeMode) {
+        st = max(stNear, st * 0.65);
+    }
 
     double thetaRobotField = brain->data->robotPoseToField.theta;
-    double tangentialDirRobot = dir_rb_f + M_PI / 2 * (deltaDir > 0 ? -1.0 : 1.0) - thetaRobotField;
+    double tangentialSign = deltaDir > 0 ? -1.0 : 1.0;
+    if (escapeMode) tangentialSign *= escapeDir;
+    double tangentialDirRobot = dir_rb_f + M_PI / 2 * tangentialSign - thetaRobotField;
     double radialDirRobot = dir_rb_f - thetaRobotField;
     double sr = cap(ballRange - range, 0.5, 0.0);
 
@@ -1085,7 +1129,8 @@ NodeStatus StrikerDecide::tick() {
 
     double kickValue = brain->kickValue(dir_rb_f);
     double threatLevel = brain->threatLevel();
-    log(format("kickValue: %.1f, threatLevel: %.1f", kickValue, threatLevel));
+    bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 0.35;
+    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f", kickValue, threatLevel, fabs(deltaDir)));
      
 
     string newDecision;
@@ -1106,6 +1151,7 @@ NodeStatus StrikerDecide::tick() {
         ballRange < autoVisualKickEnableDistMax &&
         ballRange > autoVisualKickEnableDistMin &&
         fabs(ballYaw) < autoVisualKickEnableAngle * 1.3 &&
+        visualKickAligned &&
         ball.posToField.x > brain->config->fieldDimensions.length / 2 - 14.3 &&
         fabs(ball.posToField.y) < 5.0 &&
         brain->data->robotPoseToField.x > brain->config->fieldDimensions.length / 2 - 14.3 &&
@@ -1488,7 +1534,7 @@ NodeStatus RLVisionKick::onRunning()
     double rangeThreshold = getInput<double>("range").value();
 
     bool ballTooFar = brain->data->ballDetected && brain->data->ball.range > rangeThreshold;
-    bool costTooHigh = brain->data->tmMyCost > 12.0;
+    bool costTooHigh = brain->data->tmMyCost > 8.0;
     bool elapsedEnough = elapsed > minMsecKick;
     bool elapsedTimeout = elapsed > maxMsecKick;
     bool loseBall = brain->data->lose_ball;
