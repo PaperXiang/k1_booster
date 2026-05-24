@@ -1,30 +1,24 @@
-<!-- RLVisionKick 带球丢球测试: 不走射门决策和 Adjust, 近球后直接进入视觉带球; 丢球后继续向前走 -->
+<!-- 基于 chase.xml 的 RLVisionKick 测试: 原 chase 流程追球, 近球后进入视觉带球 -->
 
-<root BTCPP_format="4">
+<root BTCPP_format="4" >
     <include path="./subtrees/subtree_cam_find_and_track_ball.xml" />
-    <include path="./subtrees/subtree_auto_standup_and_locate.xml" />
 
-    <BehaviorTree ID="MainTree">
+     <BehaviorTree ID="MainTree">
         <Sequence name="root">
-            <RunOnce>
-                <Script code="control_state=3; had_ball=false" />
-            </RunOnce>
-            <ReactiveSequence name="RLVisionKick 不射门带球测试">
-                <Speak text="test" />
-                <SubTree ID="AutoGetUpAndLocate" _autoremap="true" />
-                <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
-                <Sequence _while="ball_location_known">
-                    <Script code="had_ball=true" />
-                    <SimpleChase _while="ball_range>=1.4" vx_limit="0.7" vy_limit="0.25" stop_dist="1.0" stop_angle="0.3" />
-                    <RLVisionKick _while="ball_range&lt;1.4" min_msec_kick="1500" max_msec_kick="7000" range="6.0" />
-                </Sequence>
-                <Sequence _while="!ball_location_known &amp;&amp; had_ball">
-                    <SetVelocity x="0.28" y="0.0" theta="0.0" />
-                </Sequence>
-                <Sequence _while="!ball_location_known &amp;&amp; !had_ball">
-                    <SetVelocity />
-                </Sequence>
+            <ReactiveSequence>
+               <SubTree ID="CamFindAndTrackBall" _autoremap="true" _while="control_state>=2" />
+               <Sequence _while="control_state==3" >
+                  <Sequence _while="!ball_location_known" >
+                     <PlaySound sound="search" />
+                  </Sequence>
+                  <Sequence _while="ball_location_known" >
+                     <SimpleChase  stop_dist="1.0" stop_angle="0.3" />
+                     <RLVisionKick _while="ball_range&lt;1.4" min_msec_kick="1500" max_msec_kick="7000" range="6.0" />
+                     <PlaySound sound="playful" _while="ball_range>=1.5" />
+                     <PlaySound sound="exited" _while="ball_range&lt;1.0" />
+                  </Sequence>
+               </Sequence>
             </ReactiveSequence>
         </Sequence>
-    </BehaviorTree>
+     </BehaviorTree>
 </root>
