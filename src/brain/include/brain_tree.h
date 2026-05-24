@@ -160,8 +160,8 @@ public:
     CamFastScan(const string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
     static PortsList providedPorts() {
         return {
-            InputPort<double>("msecs_interval", 300, ""),
-            InputPort<double>("msecs_duration", 2100, "")
+            InputPort<double>("msecs_interval", 100, ""),
+            InputPort<double>("msecs_duration", 3000, "")
         };
     }
     NodeStatus onStart() override;
