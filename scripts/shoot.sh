@@ -3,20 +3,17 @@
 cd `dirname $0`
 cd ..
 
-cd `dirname $0`
-cd ..
-
 #echo "[STOP EXISTING NODES (IF ANY), TO AVOID CONFILICT]"
 ./scripts/stop.sh
 
 source ./install/setup.bash
-export FASTRTPS_DEFAULT_PROFILES_FILE=./configs/fastdds.xml
+export FASTRTPS_DEFAULT_PROFILES_FILE=/opt/booster/BoosterRos2/fastdds_profile_udp_only.xml
 
 echo "[START ROBOCUP NODES]"
 echo "[START VISION]"
-nohup ros2 launch vision launch.py save_data:=true > vision.log 2>&1 &
+nohup ros2 launch vision launch.py vision_config_path:=/opt/booster save_data:=true > vision.log 2>&1 &
 echo "[START BRAIN]"
-nohup ros2 launch brain launch.py tree:=shoot disable_log:=true disable_com:=true  > brain.log 2>&1 &
+nohup ros2 launch brain launch.py vision_config_path:=/opt/booster tree:=shoot disable_log:=true disable_com:=true  > brain.log 2>&1 &
 echo "[START GAME_CONTROLLER]"
 nohup ros2 launch game_controller launch.py > game_controller.log 2>&1 &
 #echo "[START SOUND]"
