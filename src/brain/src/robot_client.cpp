@@ -53,7 +53,7 @@ int RobotClient::moveHead(double pitch, double yaw)
 
     brain->log->setTimeNow();
     auto level = (fabs(pitch > 2.0) || fabs(yaw > 2.0)) ? rerun::TextLogLevel::Error : rerun::TextLogLevel::Info;
-    brain->log->log("debug/move_head", rerun::TextLog(format("pitch: %.1f, yaw: %.1f", pitch, yaw)).with_level(level));
+    brain->log->log("debug/move_head", rerun::TextLog(format("俯仰: %.1f, 偏航: %.1f", pitch, yaw)).with_level(level));
 
     return call(booster_interface::CreateRotateHeadMsg(pitch, yaw));
 }
@@ -119,10 +119,10 @@ int RobotClient::goalieSquatDown(bool squat)
 
 int RobotClient::squatBlock(string side)
 {
-    brain->log->log("RobotClient/squatDown", rerun::TextLog("SquatBlock action called, side: " + side));
+    brain->log->log("RobotClient/squatDown", rerun::TextLog("触发下蹲封堵，方向: " + side));
 
     if (side != "left" && side != "right") {
-        prtErr("RobotClient::squatBlock: side must be left or right");
+        prtErr("下蹲封堵方向必须是 left 或 right");
         return -1;
     }
     booster_internal::robot::b1::GoalieSquatDownParameter param(booster_internal::robot::b1::SquatDirection::kSquatDown, side == "left" ? booster_internal::robot::b1::SquatSide::kLeft : booster_internal::robot::b1::SquatSide::kRight);
@@ -136,7 +136,7 @@ int RobotClient::squatBlock(string side)
 
 int RobotClient::squatUp()
 {
-    brain->log->log("RobotClient/squatUp", rerun::TextLog("Squat up action called"));
+    brain->log->log("RobotClient/squatUp", rerun::TextLog("触发下蹲恢复动作"));
     booster_internal::robot::b1::GoalieSquatDownParameter param(booster_internal::robot::b1::SquatDirection::kSquatUp, booster_internal::robot::b1::SquatSide::kLeft);
     std::string param_json = param.ToJson().dump();
 
@@ -153,13 +153,13 @@ int RobotClient::RLVisionKick(bool start)
     nlohmann::json body;
     body["start"] = start;
     msg.body = body.dump();
-    std::cout << "[DEBUG] RobotClient::RLVisionKick called with start=" << (start ? "true" : "false") << ", api_id=" << msg.api_id << std::endl;
+    std::cout << "[调试] 调用视觉踢球 start=" << (start ? "true" : "false") << ", api_id=" << msg.api_id << std::endl;
     return call(msg);
 }
 
 int RobotClient::robocupWalk()
 {
-    std::cout << "[DEBUG] RobotClient::robocupWalk called" << std::endl;
+    std::cout << "[调试] 切换到 RoboCup 行走模式" << std::endl;
     return call(booster_interface::CreateChangeModeMsg(booster::robot::RobotMode::kWalking));
 }
 
@@ -177,7 +177,7 @@ int RobotClient::setVelocity(double x, double y, double theta, bool applyMinX, b
 {
     brain->log->setTimeNow();
     brain->log->log("RobotClient/setVelocity_in",
-                    rerun::TextLog(format("vx: %.2f  vy: %.2f  vtheta: %.2f", x, y, theta)));
+                    rerun::TextLog(format("前向速度: %.2f  侧向速度: %.2f  转向速度: %.2f", x, y, theta)));
 
     // rerun::Collection<rerun::Vec2D> vxLine = {{0, 0}, {x, 0}};
     // rerun::Collection<rerun::Vec2D> vyLine = {{0, 0}, {0, -y}};
@@ -262,7 +262,7 @@ int RobotClient::setVelocity(double x, double y, double theta, bool applyMinX, b
     _lastCmdTime = brain->get_clock()->now();
     if (fabs(_vx) > 1e-3 || fabs(_vy) > 1e-3 || fabs(_vtheta) > 1e-3) _lastNonZeroCmdTime = brain->get_clock()->now();
     brain->log->log("RobotClient/setVelocity_out",
-        rerun::TextLog(format("vx: %.2f  vy: %.2f  vtheta: %.2f", x, y, theta)));
+        rerun::TextLog(format("前向速度: %.2f  侧向速度: %.2f  转向速度: %.2f", x, y, theta)));
     return call(booster_interface::CreateMoveMsg(x, y, theta));
 }
 

@@ -11,7 +11,7 @@ BrainLog::BrainLog(Brain *argBrain) : brain(argBrain), log_tcp("robocup"), log_f
     if (enable_log_tcp)
     {
         rerun::Error err = log_tcp.connect(brain->config->rerunLogServerIP);
-        if (err.is_err()) prtErr("Connect rerunLog server failed: " + err.description);
+        if (err.is_err()) prtErr("连接 rerun 日志服务器失败: " + err.description);
         // 注意这里，如果指定的地址里没有启动服务，err其实也不会报错，只会阻塞一定的时间（默认2s)，进不到这个分支
         // TODO：后续可以看看 relog 文档，把这里修一下，预期的是连不上服务要正常报错
     }
@@ -28,7 +28,7 @@ BrainLog::BrainLog(Brain *argBrain) : brain(argBrain), log_tcp("robocup"), log_f
         
         auto file_name = gen_timestamped_filename(brain->config->rerunLogLogDir, ".rrd");
         auto saveError = log_file.save(file_name);
-        if (saveError.is_err()) prtErr("Rerun log save Error: " + saveError.description);
+        if (saveError.is_err()) prtErr("保存 rerun 日志失败: " + saveError.description);
     }
 
 }
@@ -165,7 +165,7 @@ void BrainLog::updateLogFilePath() {
     brain->data->timeLastLogSave = brain->get_clock()->now();
     auto file_name = gen_timestamped_filename(brain->config->rerunLogLogDir, ".rrd");
     auto saveError = log_file.save(file_name);
-    if (saveError.is_err()) prtErr("Rerun log save Error: " + saveError.description);
+    if (saveError.is_err()) prtErr("保存 rerun 日志失败: " + saveError.description);
     logStatics();
 }
 

@@ -1297,7 +1297,7 @@ NodeStatus Kick::onRunning()
 
     const double BALL_LOST_THRESHOLD = 1000;  // ms
     if (ballRange > KICK_RANGE){
-        log("ball too far, abort kick");
+        log("球太远，终止踢球");
         return NodeStatus::SUCCESS;
     }
     if (
@@ -1307,7 +1307,7 @@ NodeStatus Kick::onRunning()
             || brain->msecsSince(brain->data->ball.timePoint) > BALL_LOST_THRESHOLD // 疑似丢球了
         )
     ) {
-        log("ball moved, abort kick");
+        log("球已移动，终止踢球");
         return NodeStatus::SUCCESS;
     }
     log(format("ballrange: %.1f, minRange: %.1f", ballRange, _minRange));
@@ -1365,7 +1365,7 @@ NodeStatus Kick::onRunning()
     }
 
     // should not reach here
-    prtErr("Kick: Reached impossible condition");
+    prtErr("踢球节点进入了不应出现的状态");
     return NodeStatus::SUCCESS;
 }
 
@@ -1395,11 +1395,11 @@ NodeStatus RLVisionKick::onRunning()
     auto logExit = [=](const string &msg) {
         brain->log->setTimeNow();
         brain->log->log("debug/RLVisionKick", rerun::TextLog(msg));
-        std::cout << "[RLVisionKick] " << msg << std::endl;
+        std::cout << "[视觉踢球] " << msg << std::endl;
     };
 
     if (brain->data->shouldExitRLVisionKick) {
-        logExit("exit visual kick: shouldExitRLVisionKick=true");
+        logExit("退出视觉踢球：收到主动退出标记");
         brain->data->shouldExitRLVisionKick = false;
         brain->data->tmImInVisualKick = false;
         recordExitTime();
@@ -1453,13 +1453,13 @@ NodeStatus RLVisionKick::onRunning()
             if (!reasons.empty()) reasons += ", ";
             reasons += reason;
         };
-        if (ballTooFar && elapsedEnough) appendReason(format("ball_too_far(range=%.2f,threshold=%.2f)", brain->data->ball.range, rangeThreshold));
-        if (costTooHigh && elapsedEnough) appendReason(format("tm_cost_high(cost=%.2f,min=%.0fms,elapsed=%.0fms)", brain->data->tmMyCost, minMsecKick, elapsed));
-        if (loseBallExit) appendReason("lose_ball=true");
-        if (ballOut) appendReason("ball_out=true");
-        if (elapsedTimeout) appendReason(format("timeout(max=%.0fms,elapsed=%.0fms)", maxMsecKick, elapsed));
-        if (reasons.empty()) reasons = "unknown";
-        logExit(format("exit visual kick: %s", reasons.c_str()));
+        if (ballTooFar && elapsedEnough) appendReason(format("球太远(距离=%.2f,阈值=%.2f)", brain->data->ball.range, rangeThreshold));
+        if (costTooHigh && elapsedEnough) appendReason(format("控球成本过高(成本=%.2f,最短=%.0fms,已用=%.0fms)", brain->data->tmMyCost, minMsecKick, elapsed));
+        if (loseBallExit) appendReason("丢球");
+        if (ballOut) appendReason("球出界");
+        if (elapsedTimeout) appendReason(format("超时(上限=%.0fms,已用=%.0fms)", maxMsecKick, elapsed));
+        if (reasons.empty()) reasons = "未知原因";
+        logExit(format("退出视觉踢球：%s", reasons.c_str()));
 
         recordExitTime();
         startDecelerate(1000.0);
@@ -1473,10 +1473,10 @@ NodeStatus RLVisionKick::onRunning()
 
 void RLVisionKick::onHalted()
 {
-    const string haltMsg = "halted by behavior tree, force exit visual kick";
+    const string haltMsg = "行为树中断，强制退出视觉踢球";
     brain->log->setTimeNow();
     brain->log->log("debug/RLVisionKick", rerun::TextLog(haltMsg));
-    std::cout << "[RLVisionKick] " << haltMsg << std::endl;
+    std::cout << "[视觉踢球] " << haltMsg << std::endl;
     brain->data->tmImInVisualKick = false;
     brain->client->setVelocity(0.0, 0.0, 0.0, false, false, false);
     brain->client->robocupWalk();

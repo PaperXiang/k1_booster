@@ -20,7 +20,7 @@ void BrainCommunication::initCommunication()
     initGameControllerUnicast();
     if (brain->config->enableCom)
     {
-        cout << RED_CODE << "Communication enabled." << RESET_CODE << endl;
+        cout << RED_CODE << "队友通信已开启。" << RESET_CODE << endl;
         _discovery_udp_port = 20000 + brain->config->teamId;
         _unicast_udp_port = 30000 + brain->config->teamId;
 
@@ -31,7 +31,7 @@ void BrainCommunication::initCommunication()
     }
     else
     {
-        cout << RED_CODE << "Communication disabled." << RESET_CODE << endl;
+        cout << RED_CODE << "队友通信已关闭。" << RESET_CODE << endl;
     }
 }
     
@@ -43,13 +43,13 @@ void BrainCommunication::initGameControllerUnicast()
         _gc_send_socket = socket(AF_INET, SOCK_DGRAM, 0);
         if (_gc_send_socket < 0)
         {
-        cout << RED_CODE << format("gc socket failed: %s", strerror(errno))
+        cout << RED_CODE << format("裁判机发送 socket 创建失败: %s", strerror(errno))
             << RESET_CODE << endl;
         throw std::runtime_error(strerror(errno));
         }
         // 配置目标地址
         string gamecontrol_ip = brain->get_parameter("game_control_ip").as_string();
-        cout << GREEN_CODE << format("GameControl IP: %s", gamecontrol_ip.c_str())
+        cout << GREEN_CODE << format("裁判机 IP: %s", gamecontrol_ip.c_str())
             << RESET_CODE << endl;
         _gcsaddr.sin_family = AF_INET;
         _gcsaddr.sin_addr.s_addr = inet_addr(gamecontrol_ip.c_str());
@@ -71,7 +71,7 @@ void BrainCommunication::clearupGameControllerUnicast()
     {
         close(_gc_send_socket);
         _gc_send_socket = -1;
-        cout << RED_CODE << format("GameControl send socket has been closed.")
+        cout << RED_CODE << format("裁判机发送 socket 已关闭。")
             << RESET_CODE << endl;
     }
     if (_gamecontrol_unicast_thread.joinable())
@@ -87,7 +87,7 @@ void BrainCommunication::initDiscoveryBroadcast()
         _discovery_send_socket = socket(AF_INET, SOCK_DGRAM, 0);
         if (_discovery_send_socket < 0)
         {
-            cout << RED_CODE << format("socket failed: %s", strerror(errno))
+            cout << RED_CODE << format("socket 创建失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
@@ -97,7 +97,7 @@ void BrainCommunication::initDiscoveryBroadcast()
         if (setsockopt(_discovery_send_socket, SOL_SOCKET, SO_BROADCAST, 
                     &broadcast, sizeof(broadcast)) < 0)
         {
-            cout << RED_CODE << format("Failed to set SO_BROADCAST: %s", strerror(errno))
+            cout << RED_CODE << format("设置 SO_BROADCAST 失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
@@ -113,7 +113,7 @@ void BrainCommunication::initDiscoveryBroadcast()
     catch(const std::exception& e)
     {
         std::cerr << e.what() << '\n';
-        brain->log->log("error/communication", rerun::TextLog(format("Failed to initialize discovery broadcast: %s", e.what())));
+        brain->log->log("error/communication", rerun::TextLog(format("初始化发现广播失败: %s", e.what())));
     }
     
 }
@@ -125,7 +125,7 @@ void BrainCommunication::clearupDiscoveryBroadcast()
     {
         close(_discovery_send_socket);
         _discovery_send_socket = -1;
-        cout << RED_CODE << format("Discovery send socket has been closed.")
+        cout << RED_CODE << format("发现广播发送 socket 已关闭。")
             << RESET_CODE << endl;
     }
 
@@ -142,7 +142,7 @@ void BrainCommunication::initDiscoveryReceiver()
         _discovery_recv_socket = socket(AF_INET, SOCK_DGRAM, 0);
         if (_discovery_recv_socket < 0)
         {
-            cout << RED_CODE << format("socket failed: %s", strerror(errno))
+            cout << RED_CODE << format("socket 创建失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
@@ -151,7 +151,7 @@ void BrainCommunication::initDiscoveryReceiver()
         int reuse = 1;
         if (setsockopt(_discovery_recv_socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
         {
-            cout << RED_CODE << format("Failed to set SO_REUSEADDR: %s", strerror(errno))
+            cout << RED_CODE << format("设置 SO_REUSEADDR 失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
@@ -163,12 +163,12 @@ void BrainCommunication::initDiscoveryReceiver()
         
         if (bind(_discovery_recv_socket, (sockaddr *)&addr, sizeof(addr)) < 0)
         {
-            cout << RED_CODE << format("bind failed: %s (port=%d)", strerror(errno), _discovery_udp_port)
+            cout << RED_CODE << format("绑定端口失败: %s (端口=%d)", strerror(errno), _discovery_udp_port)
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
 
-        cout << GREEN_CODE << format("Listening for UDP broadcast on port %d", _discovery_udp_port)
+        cout << GREEN_CODE << format("正在监听 UDP 广播，端口 %d", _discovery_udp_port)
             << RESET_CODE << endl;
 
         _receive_discovery_flag = true;
@@ -177,7 +177,7 @@ void BrainCommunication::initDiscoveryReceiver()
     catch(const std::exception& e)
     {
         std::cerr << e.what() << '\n';
-        brain->log->log("error/communication", rerun::TextLog(format("Failed to initialize discovery receiver: %s", e.what())));
+        brain->log->log("error/communication", rerun::TextLog(format("初始化发现接收器失败: %s", e.what())));
     }
 }
 
@@ -188,7 +188,7 @@ void BrainCommunication::clearupDiscoveryReceiver()
     {
         close(_discovery_recv_socket);
         _discovery_recv_socket = -1;
-        cout << RED_CODE << format("Communication receive socket has been closed.")
+        cout << RED_CODE << format("通信接收 socket 已关闭。")
             << RESET_CODE << endl;
     }
     if (_discovery_recv_thread.joinable())
@@ -209,7 +209,7 @@ void BrainCommunication::unicastToGameController() {
         int ret = sendto(_gc_send_socket, &gc_return_data, sizeof(gc_return_data), 0, (sockaddr *)&_gcsaddr, sizeof(_gcsaddr));
         if (ret < 0)
         {
-            cout << RED_CODE << format("gc sendto failed: %s", strerror(errno))
+            cout << RED_CODE << format("发送裁判机回包失败: %s", strerror(errno))
                 << RESET_CODE << endl;
         }
         this_thread::sleep_for(chrono::milliseconds(BROADCAST_GAME_CONTROL_INTERVAL_MS));
