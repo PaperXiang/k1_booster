@@ -288,13 +288,13 @@ CamFindBall::CamFindBall(const string &name, const NodeConfig &config, Brain *_b
 
 NodeStatus CamFindBall::tick()
 {
-    const double bodyVtheta = 1.2; // 5.2s per body revolution; faster than the 7s requirement.
-    const double headPeriod = 2.4;
+    const double bodyVtheta = 1.0;
+    const double headPeriod = 2.8;
     const double omega = 2.0 * M_PI / headPeriod;
     const double yawCenter = 0.0;
     const double yawAmp = 1.05;
-    const double pitchCenter = 0.30;
-    const double pitchAmp = 0.34;
+    const double pitchCenter = 0.22;
+    const double pitchAmp = 0.22;
     const double maxYawRate = 2.0;
     const double maxPitchRate = 1.9;
     const double baseYawAcc = 6.0;
@@ -321,8 +321,6 @@ NodeStatus CamFindBall::tick()
 
     if (brain->data->ballDetected)
     {
-        brain->client->setVelocity(0, 0, 0);
-
         if (_acquireCount == 0)
         {
             _firstAcquireTime = now;
@@ -331,8 +329,11 @@ NodeStatus CamFindBall::tick()
         _acquireCount++;
         if (_acquireCount >= acquireCountThreshold || brain->msecsSince(_firstAcquireTime) >= acquireWindowMSec)
         {
+            brain->client->setVelocity(0, 0, 0);
             _scanActive = false;
             _acquireCount = 0;
+        } else {
+            brain->client->setVelocity(0, 0, bodyVtheta * 0.5);
         }
 
         return NodeStatus::SUCCESS;
