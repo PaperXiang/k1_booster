@@ -2,7 +2,7 @@ brain_node:
   ros__parameters:
     # 比赛与队员身份配置，主要影响裁判机状态解析、行为树角色分支和初始站位。
     game:
-      team_id: 66 # 队伍编号，必须与 RoboCup GameController 中的队伍编号一致。
+      team_id: 4 # 队伍编号，必须与 RoboCup GameController 中的队伍编号一致。
       player_id: 3 # 当前机器人球员编号，范围通常为 1 | 2 | 3 | 4 | 5，用于判罚、通信和身份上报。
       field_type: "adult_size" # 球场类型，用于加载对应场地尺寸；可选 adult_size | kid_size | robo_league。
       player_role: "striker" # 默认角色，决定 PLAY 状态下进入前锋还是守门员行为树；可选 striker | goal_keeper。
@@ -143,7 +143,7 @@ brain_node:
     debug:
       log_ball_pos: false # 预留：当前未声明/未使用，不会实际记录 ballpos.log。
     
-    game_control_ip: "192.168.74.2" # 裁判机 IP 地址，Brain 会向该地址回传 alive 状态。
+    game_control_ip: "192.168.26.2" # 裁判机 IP 地址，Brain 会向该地址回传 alive 状态。
 
     # 声音和语音播报配置。
     sound:
