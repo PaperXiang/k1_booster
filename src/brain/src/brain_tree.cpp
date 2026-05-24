@@ -1,4 +1,4 @@
-#include <cmath>
+﻿#include <cmath>
 #include <cstdlib>
 #include <memory> 
 #include "brain_tree.h"
@@ -1500,7 +1500,7 @@ NodeStatus RLVisionKick::onRunning()
     double rangeThreshold = getInput<double>("range").value();
 
     bool ballTooFar = brain->data->ballDetected && brain->data->ball.range > rangeThreshold;
-    bool costTooHigh = brain->data->tmMyCost > 8.0;
+    bool costTooHigh = brain->data->tmMyCost > 12.0;
     bool elapsedEnough = elapsed > minMsecKick;
     bool elapsedTimeout = elapsed > maxMsecKick;
     bool loseBall = brain->data->lose_ball;
@@ -1544,8 +1544,8 @@ void RLVisionKick::onHalted()
     recordExitTime();
 
     _isDecelerating = false;
-    _visionKickStarted = false;
     _pendingRobocupWalk = false;
+    _visionKickStarted = false;
 }
 
 bool RLVisionKick::isMinIntervalSatisfied(double minIntervalMsec)
@@ -3776,3 +3776,4 @@ NodeStatus Speak::tick()
     brain->speak(text, false);
     return NodeStatus::SUCCESS;
 }
+
