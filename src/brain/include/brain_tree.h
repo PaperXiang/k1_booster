@@ -131,8 +131,11 @@ public:
     CamFindBall(const string &name, const NodeConfig &config, Brain *_brain);
     NodeStatus tick() override;
 private:
+    double _cmdSequence[6][2];
     rclcpp::Time _timeLastCmd;
+    int _cmdIndex;
     long _cmdIntervalMSec;
+    long _cmdRestartIntervalMSec;
     Brain *brain;
 };
 
@@ -158,18 +161,17 @@ class CamFastScan : public StatefulActionNode
 {
 public:
     CamFastScan(const string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
-    static PortsList providedPorts() {
-        return {
-            InputPort<double>("msecs_interval", 100, ""),
-            InputPort<double>("msecs_duration", 3000, "")
-        };
-    }
+    static PortsList providedPorts() { return { InputPort<double>("msecs_interval", 300, "") }; }
     NodeStatus onStart() override;
     NodeStatus onRunning() override;
     void onHalted() override {};
 private:
-    rclcpp::Time _timeStart;
+    double _cmdSequence[7][2] = {
+        {0.2, 1.1}, {0.2, 0.0}, {0.2, -1.1},
+        {0.9, -1.1}, {0.9, 0.0}, {0.9, 1.1}, {0.2, 0.0},
+    };
     rclcpp::Time _timeLastCmd;
+    int _cmdIndex = 0;
     Brain *brain;
 };
 
