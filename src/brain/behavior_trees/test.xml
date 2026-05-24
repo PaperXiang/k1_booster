@@ -1,0 +1,20 @@
+<!-- Obvious Kick-only test: no head scanning/tracking, no body turn planning, no adjust. -->
+
+<root BTCPP_format="4">
+    <BehaviorTree ID="MainTree">
+        <Sequence name="root">
+            <ReactiveSequence>
+                <Sequence _while="control_state==3">
+                    <Sequence _while="!ball_location_known">
+                        <SetVelocity />
+                        <PlaySound sound="search" />
+                    </Sequence>
+                    <Sequence _while="ball_location_known">
+                        <Kick speed_limit="0.55" min_msec_kick="300" />
+                        <PlaySound sound="exited" _while="ball_range&lt;1.0" />
+                    </Sequence>
+                </Sequence>
+            </ReactiveSequence>
+        </Sequence>
+    </BehaviorTree>
+</root>
