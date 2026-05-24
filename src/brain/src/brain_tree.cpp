@@ -437,11 +437,26 @@ NodeStatus Chase::tick()
         vy = speed * sin(avoidDir);
         vtheta = ballYaw;
     } else {
-        vx = min(vxLimit, ballRange);
-        vy = 0;
+        double distToTarget = norm(target_r.x, target_r.y);
+        vx = min(vxLimit, distToTarget);
         vtheta = targetDir;
         if (fabs(targetDir) < 0.1 && ballRange > 2.0) vtheta = 0.0;
-        vx *= sigmoid(fabs(vtheta), 1, 3);
+
+        // Keep moving while turning. The previous multiplier could reduce vx
+        // almost to zero for angled balls, causing a conservative turn-in-place.
+        double turnFactor = sigmoid(fabs(vtheta), 1.35, 1.8);
+        double minForwardFactor = ballRange > 2.0 ? 0.55 : (ballRange > 1.0 ? 0.40 : 0.22);
+        vx *= max(minForwardFactor, turnFactor);
+
+        // Add lateral cut-in so angled balls are approached on an arc instead
+        // of rotating first and walking later.
+        double lateralGain = ballRange > 1.5 ? 0.45 : 0.28;
+        vy = cap(target_r.y * lateralGain, vyLimit, -vyLimit);
+
+        // When the ball is near and far to the side, avoid stepping across it too hard.
+        if (ballRange < 0.8) {
+            vy = cap(vy, vyLimit * 0.55, -vyLimit * 0.55);
+        }
     }
 
     vx = cap(vx, vxLimit, -vxLimit);
