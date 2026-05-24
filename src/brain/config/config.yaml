@@ -70,9 +70,9 @@
         ymin: -0.3 # 当前仅声明未使用；大力射门区域未接入实际决策。
         ymax: 0.3 # 当前仅声明未使用；大力射门区域未接入实际决策。
       enable_auto_visual_kick: true # 是否允许调用底层视觉踢球技能 RLVisionKick。
-      auto_visual_kick_enable_dist_min: 0.2 # 启用视觉踢球的最小球距，单位米。
-      auto_visual_kick_enable_dist_max: 4.0 # 启用视觉踢球的最大球距，单位米。
-      auto_visual_kick_enable_angle: 0.8 # 启用视觉踢球时允许的球偏航角范围，单位弧度。
+      auto_visual_kick_enable_dist_min: 0.35 # 启用视觉踢球的最小球距，单位米。
+      auto_visual_kick_enable_dist_max: 2.5 # 启用视觉踢球的最大球距，单位米。
+      auto_visual_kick_enable_angle: 0.55 # 启用视觉踢球时允许的球偏航角范围，单位弧度。
       enable_auto_visual_defend: false # 当前守门员自动视觉防守分支未完成，不建议开启。
       cooperation:
         enable_role_switch: true # 是否允许多机协作中根据控球成本动态切换主控/辅助角色。
