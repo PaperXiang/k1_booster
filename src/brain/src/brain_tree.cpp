@@ -488,15 +488,18 @@ NodeStatus Chase::tick()
         // Keep moving while turning. For angled balls, force a strong forward
         // component so the robot traces an arc instead of turning in place.
         double turnFactor = sigmoid(fabs(targetDir), 1.65, 1.2);
-        double minForwardFactor = ballRange > 2.0 ? 0.95 : (ballRange > 1.0 ? 0.82 : 0.55);
+        double minForwardFactor = ballRange > 2.0 ? 1.0 : (ballRange > 1.0 ? 0.92 : 0.68);
         vx *= max(minForwardFactor, turnFactor);
+        if (ballRange > 2.0) {
+            vx = vxLimit;
+        }
         if (fabs(targetDir) > 0.25 && ballRange > 0.75) {
-            vx = max(vx, vxLimit * (ballRange > 1.2 ? 0.90 : 0.70));
+            vx = max(vx, vxLimit * (ballRange > 1.2 ? 0.96 : 0.82));
         }
 
         // Add lateral cut-in so angled balls are approached on an arc instead
         // of rotating first and walking later.
-        double lateralGain = ballRange > 1.5 ? 0.80 : 0.45;
+        double lateralGain = ballRange > 1.5 ? 0.90 : 0.55;
         vy = cap(target_r.y * lateralGain, vyLimit, -vyLimit);
 
         // When the ball is near and far to the side, avoid stepping across it too hard.

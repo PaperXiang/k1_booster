@@ -24,8 +24,8 @@ brain_node:
       odom_factor: 1.2 # 里程计缩放系数，用于修正 /odometer_state 的 x/y 位移误差。
       vx_factor: 0.90 # 前向速度补偿系数，crabWalk 等动作会用它修正 x/y 实际速度比例。
       yaw_offset: 0.0 # 运动方向角补偿，修正机器人实际移动方向与期望方向的偏差，单位弧度。
-      vx_limit: 1.6 # 全局前后方向速度上限，单位 m/s。
-      vy_limit: 0.7 # 全局左右方向速度上限，单位 m/s。
+      vx_limit: 2.0 # 全局前后方向速度上限，单位 m/s。
+      vy_limit: 0.8 # 全局左右方向速度上限，单位 m/s。
       vtheta_limit: 2.4 # 全局旋转角速度上限，单位 rad/s。
 
     # 比赛策略参数，控制找球、追球、调整、踢球、射门和多机协作行为。
