@@ -291,7 +291,7 @@ NodeStatus CamFindBall::tick()
     const double headPeriod = 2.4;
     const double omega = 2.0 * M_PI / headPeriod;
     const double yawCenter = 0.0;
-    const double yawAmp = 0.75;
+    const double yawAmp = 1.05;
     const double pitchCenter = 0.30;
     const double pitchAmp = 0.34;
     const double maxYawRate = 2.0;
