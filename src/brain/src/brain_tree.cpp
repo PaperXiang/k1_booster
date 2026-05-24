@@ -332,7 +332,9 @@ NodeStatus CamFindBall::tick()
             _scanActive = false;
             _acquireCount = 0;
         } else {
-            brain->client->setVelocity(0, 0, bodyVtheta * 0.5);
+            double reacquireVx = brain->data->ball.range > 0.8 ? cap(brain->data->ball.posToRobot.x * 0.35, 0.35, 0.0) : 0.0;
+            double reacquireVtheta = cap(brain->data->ball.yawToRobot * 1.5, 0.9, -0.9);
+            brain->client->setVelocity(reacquireVx, 0, reacquireVtheta, false, false, false);
         }
 
         return NodeStatus::SUCCESS;
@@ -554,9 +556,22 @@ NodeStatus SimpleChase::tick()
     double vy = brain->data->ball.posToRobot.y;
     double vtheta = brain->data->ball.yawToRobot * 2.0; // 后面的乘数越大, 转身越快
 
-    double linearFactor = 1 / (1 + exp(3 * (brain->data->ball.range * fabs(brain->data->ball.yawToRobot)) - 3)); // 距离远时, 优先转向
-    vx *= linearFactor;
-    vy *= linearFactor;
+    double ballRange = brain->data->ball.range;
+    double ballYawAbs = fabs(brain->data->ball.yawToRobot);
+    double linearFactor = 1 / (1 + exp(3 * (ballRange * ballYawAbs) - 3)); // 距离远时, 优先转向
+    double minForwardFactor = ballRange > 2.0 ? 1.0 : (ballRange > 1.5 ? 0.75 : (ballRange > stopDist ? 0.45 : 0.0));
+    vx *= max(linearFactor, minForwardFactor);
+    vy *= max(linearFactor, 0.25);
+
+    if (ballRange > stopDist && brain->data->ball.posToRobot.x > 0.2)
+    {
+        vx = max(vx, vxLimit * minForwardFactor);
+    }
+
+    if (ballRange > 2.0 && brain->data->ball.posToRobot.x > 0.2)
+    {
+        vx = vxLimit;
+    }
 
     vx = cap(vx, vxLimit, -0.1);     // 进一步限速
     vy = cap(vy, vyLimit, -vyLimit); // vy 进一步限速
