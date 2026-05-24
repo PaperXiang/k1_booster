@@ -124,7 +124,6 @@ void BrainTree::initEntry()
     setEntry<int>("control_state", 0);
     setEntry<bool>("assist_chase", false);
     setEntry<bool>("assist_kick", false);
-    setEntry<int>("adjust_escape_count", 0);
     setEntry<bool>("go_manual", false);
 
     setEntry<bool>("we_just_scored", false);
@@ -919,60 +918,13 @@ NodeStatus Adjust::tick()
     double ballRange = brain->data->ball.range;
     double ballYaw = brain->data->ball.yawToRobot;
 
-    static double bestAdjustDelta = 999.0;
-    static rclcpp::Time adjustStart(0, 0, RCL_ROS_TIME);
-    static rclcpp::Time adjustLastImprove(0, 0, RCL_ROS_TIME);
-    static double escapeDir = 1.0;
-    static bool escapeMode = false;
-    static int adjustEscapeCount = 0;
-
-    auto now = brain->get_clock()->now();
-    double absDeltaDir = fabs(deltaDir);
-    bool resetAdjustLoop =
-        ballRange > 1.6 ||
-        !brain->tree->getEntry<bool>("ball_location_known") ||
-        brain->tree->getEntry<string>("decision") != "adjust";
-
-    if (resetAdjustLoop) {
-        bestAdjustDelta = absDeltaDir;
-        adjustStart = now;
-        adjustLastImprove = now;
-        escapeDir = 1.0;
-        escapeMode = false;
-        adjustEscapeCount = 0;
-    } else {
-        if (adjustStart.nanoseconds() == 0) adjustStart = now;
-        if (adjustLastImprove.nanoseconds() == 0) adjustLastImprove = now;
-        if (absDeltaDir + 0.04 < bestAdjustDelta) {
-            bestAdjustDelta = absDeltaDir;
-            adjustLastImprove = now;
-            escapeMode = false;
-        } else if (
-            brain->msecsSince(adjustStart) > 900 &&
-            brain->msecsSince(adjustLastImprove) > 450 &&
-            absDeltaDir > 0.25
-        ) {
-            escapeMode = true;
-            escapeDir *= -1.0;
-            adjustEscapeCount += 1;
-            adjustStart = now;
-            adjustLastImprove = now;
-            bestAdjustDelta = absDeltaDir;
-        }
-    }
-    brain->tree->setEntry<int>("adjust_escape_count", adjustEscapeCount);
-
     double st = stFar;
     if (fabs(deltaDir) * ballRange < nearThreshold) {
         st = stNear;
     }
-    if (escapeMode) {
-        st = max(stNear, st * 0.65);
-    }
 
     double thetaRobotField = brain->data->robotPoseToField.theta;
     double tangentialSign = deltaDir > 0 ? -1.0 : 1.0;
-    if (escapeMode) tangentialSign *= escapeDir;
     double tangentialDirRobot = dir_rb_f + M_PI / 2 * tangentialSign - thetaRobotField;
     double radialDirRobot = dir_rb_f - thetaRobotField;
     double sr = cap(ballRange - range, 0.5, 0.0);
@@ -1147,14 +1099,8 @@ NodeStatus StrikerDecide::tick() {
 
     double kickValue = brain->kickValue(dir_rb_f);
     double threatLevel = brain->threatLevel();
-    int adjustEscapeCount = brain->tree->getEntry<int>("adjust_escape_count");
-    bool adjustFallbackKick =
-        adjustEscapeCount >= 2 &&
-        ballRange < 1.2 &&
-        fabs(ballYaw) < autoVisualKickEnableAngle * 1.3 &&
-        fabs(deltaDir) < 0.8;
-    bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 0.35 || adjustFallbackKick;
-    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, adjustFallbackKick: %d, adjustEscapeCount: %d", kickValue, threatLevel, fabs(deltaDir), adjustFallbackKick, adjustEscapeCount));
+    bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 0.35;
+    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f", kickValue, threatLevel, fabs(deltaDir)));
      
 
     string newDecision;
