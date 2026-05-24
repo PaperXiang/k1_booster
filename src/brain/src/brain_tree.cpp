@@ -287,19 +287,19 @@ CamFindBall::CamFindBall(const string &name, const NodeConfig &config, Brain *_b
 
 NodeStatus CamFindBall::tick()
 {
-    const double bodyVtheta = 1.0;
-    const double headPeriod = 2.8;
+    const double bodyVtheta = 1.5; // 4.2s per body revolution.
+    const double headPeriod = 2.1; // About two full head scan cycles per body revolution.
     const double omega = 2.0 * M_PI / headPeriod;
     const double yawCenter = 0.0;
     const double yawAmp = 1.05;
     const double pitchCenter = 0.22;
     const double pitchAmp = 0.22;
-    const double maxYawRate = 2.0;
-    const double maxPitchRate = 1.9;
-    const double baseYawAcc = 6.0;
-    const double basePitchAcc = 6.5;
-    const double minAccScale = 0.55;
-    const double cmdIntervalMSec = 33.0;
+    const double maxYawRate = 3.2;
+    const double maxPitchRate = 2.2;
+    const double baseYawAcc = 10.0;
+    const double basePitchAcc = 8.5;
+    const double minAccScale = 0.60;
+    const double cmdIntervalMSec = 25.0;
     const double acquireWindowMSec = 250.0;
     const int acquireCountThreshold = 2;
 
@@ -559,7 +559,7 @@ NodeStatus SimpleChase::tick()
     double ballRange = brain->data->ball.range;
     double ballYawAbs = fabs(brain->data->ball.yawToRobot);
     double linearFactor = 1 / (1 + exp(3 * (ballRange * ballYawAbs) - 3)); // 距离远时, 优先转向
-    double minForwardFactor = ballRange > 2.0 ? 1.0 : (ballRange > 1.5 ? 0.75 : (ballRange > stopDist ? 0.45 : 0.0));
+    double minForwardFactor = ballRange > 2.0 ? 1.0 : (ballRange > stopDist ? 0.65 : 0.0);
     vx *= max(linearFactor, minForwardFactor);
     vy *= max(linearFactor, 0.25);
 
