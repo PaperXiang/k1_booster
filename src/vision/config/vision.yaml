@@ -40,7 +40,7 @@ detection_model:
   post_process:
     single_ball_assumption: false
     confidence_thresholds:
-      Ball: 0.4
+      Ball: 0.6
       Goalpost: 0.4
       Person: 0.4
       LCross: 0.3
