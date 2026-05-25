@@ -559,13 +559,13 @@ NodeStatus SimpleChase::tick()
     double ballRange = brain->data->ball.range;
     double ballYawAbs = fabs(brain->data->ball.yawToRobot);
     double linearFactor = 1 / (1 + exp(3 * (ballRange * ballYawAbs) - 3)); // 距离远时, 优先转向
-    double minForwardFactor = ballRange > 1.6 ? 1.0 : (ballRange > 1.2 ? 0.80 : (ballRange > 0.5 ? 0.70 : 0.0));
-    vx *= max(linearFactor, minForwardFactor);
+    double forwardFactor = ballRange > 1.6 ? 1.0 : (ballRange > 1.2 ? 0.80 : (ballRange > 1.0 ? 0.70 : (ballRange > 0.7 ? 0.30 : 0.0)));
+    vx *= max(linearFactor, forwardFactor);
     vy *= max(linearFactor, 0.25);
 
     if (brain->data->ball.posToRobot.x > 0.05)
     {
-        vx = max(vx, vxLimit * minForwardFactor);
+        vx = max(vx, vxLimit * forwardFactor);
     }
 
     if (ballRange > 1.6 && brain->data->ball.posToRobot.x > 0.05)
@@ -573,10 +573,10 @@ NodeStatus SimpleChase::tick()
         vx = vxLimit;
     }
 
-    vx = cap(vx, vxLimit, -0.1);     // 进一步限速
+    vx = cap(vx, vxLimit * forwardFactor, -0.1);     // 进一步限速
     vy = cap(vy, vyLimit, -vyLimit); // vy 进一步限速
 
-    if (ballRange <= 0.5)
+    if (ballRange <= 0.7)
     {
         vx = 0;
         vy = 0;
