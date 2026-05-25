@@ -19,6 +19,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "booster_vision/base/intrin.h"
+#include "booster_vision/base/ground_plane.h"
 #include "booster_vision/base/pose.h"
 
 #include "booster_vision/color_classifier.hpp"
@@ -69,6 +70,10 @@ private:
     Pose p_previous_head2base_;
     float z_compensation_ = 0;
     int line_segment_area_threshold_ = 10; // threshold for line segment detection
+
+    GroundPlaneConfig ground_plane_config_;
+    GroundPlaneCache ground_plane_cache_;
+    int ground_plane_frame_count_ = 0;
 
     // post processing
     bool enable_post_process_ = false;

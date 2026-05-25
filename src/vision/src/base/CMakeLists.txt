@@ -1,6 +1,7 @@
 add_library(booster_vision_base SHARED intrin.cpp
                                        pose.cpp
                                        pointcloud_process.cpp
+                                       ground_plane.cpp
                                        data_syncer.cpp
                                        )
 target_include_directories(booster_vision_base PUBLIC ${geometry_msgs_INCLUDE_DIRS}

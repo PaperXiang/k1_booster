@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <cmath>
 #include <fstream>  // 添加这一行
 #include <yaml-cpp/yaml.h>  // 添加这一行
 
@@ -2038,21 +2039,33 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
         gObj.boundingBox.ymin = obj.ymin;
         gObj.confidence = obj.confidence;
 
-        // 深度优先
-        // if (obj.position.size() > 0 && !(obj.position[0] == 0 && obj.position[1] == 0))
-        // { // 深度测距成功， 以深度测距为准
-        //     gObj.posToRobot.x = obj.position[0];
-        //     gObj.posToRobot.y = obj.position[1];
-        // }
-        // else
-        // { // 深度测距失败，以投影距离为准
-        //     gObj.posToRobot.x = obj.position_projection[0];
-        //     gObj.posToRobot.y = obj.position_projection[1];
-        // } // 注意，z 值没有用到
+        // Prefer dynamic ground-plane/depth position from vision, then fall back to fixed z=0 projection.
+        auto isReasonableVisionPosition = [&](double x, double y) {
+            if (!std::isfinite(x) || !std::isfinite(y)) {
+                return false;
+            }
+            if (gObj.label == "Ball") {
+                return x >= -0.5 && x <= 15.0 && std::fabs(y) <= 8.0;
+            }
+            return x >= -2.0 && x <= 20.0 && std::fabs(y) <= 15.0;
+        };
 
-        // 不用深度测距, 直接用投影距离
-        gObj.posToRobot.x = obj.position_projection[0];
-        gObj.posToRobot.y = obj.position_projection[1];
+        gObj.posToRobot.x = 0.0;
+        gObj.posToRobot.y = 0.0;
+        gObj.posToRobot.z = 0.0;
+
+        bool used_dynamic_position = false;
+        if (obj.position.size() >= 2 &&
+            isReasonableVisionPosition(obj.position[0], obj.position[1])) {
+            gObj.posToRobot.x = obj.position[0];
+            gObj.posToRobot.y = obj.position[1];
+            used_dynamic_position = true;
+        }
+
+        if (!used_dynamic_position && obj.position_projection.size() >= 2) {
+            gObj.posToRobot.x = obj.position_projection[0];
+            gObj.posToRobot.y = obj.position_projection[1];
+        }
 
         // 计算角度
         gObj.range = norm(gObj.posToRobot.x, gObj.posToRobot.y);

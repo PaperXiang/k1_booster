@@ -1,6 +1,8 @@
 #include "booster_vision/vision_node.h"
 
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <filesystem>
 #include <iostream>
@@ -162,6 +164,24 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
 
     // init data_syncer
     use_depth_ = as_or<bool>(node["use_depth"], false);
+    if (node["ground_plane"]) {
+        const auto &ground_node = node["ground_plane"];
+        ground_plane_config_.enable = as_or<bool>(ground_node["enable"], false);
+        ground_plane_config_.update_every_n_frames = std::max(1, as_or<int>(ground_node["update_every_n_frames"], 5));
+        ground_plane_config_.sample_step = std::max(1, as_or<int>(ground_node["sample_step"], 8));
+        ground_plane_config_.min_depth = as_or<float>(ground_node["min_depth"], 0.2f);
+        ground_plane_config_.max_depth = as_or<float>(ground_node["max_depth"], 6.0f);
+        ground_plane_config_.ransac_distance_threshold = as_or<float>(ground_node["ransac_distance_threshold"], 0.02f);
+        ground_plane_config_.min_inlier_ratio = as_or<float>(ground_node["min_inlier_ratio"], 0.35f);
+        ground_plane_config_.max_normal_tilt_deg = as_or<float>(ground_node["max_normal_tilt_deg"], 25.0f);
+        ground_plane_config_.force_update_head_pitch_delta_deg = as_or<float>(ground_node["force_update_head_pitch_delta_deg"], 3.0f);
+        ground_plane_config_.force_update_head_yaw_delta_deg = as_or<float>(ground_node["force_update_head_yaw_delta_deg"], 5.0f);
+        ground_plane_config_.min_ground_height = as_or<float>(ground_node["min_ground_height"], -0.20f);
+        ground_plane_config_.max_ground_height = as_or<float>(ground_node["max_ground_height"], 0.25f);
+    }
+    ground_plane_config_.enable = ground_plane_config_.enable && use_depth_;
+    std::cout << "ground_plane.enable: " << ground_plane_config_.enable << std::endl;
+    std::cout << "ground_plane.update_every_n_frames: " << ground_plane_config_.update_every_n_frames << std::endl;
     data_syncer_ = std::make_shared<DataSyncer>(use_depth_);
     bool save_data_nonstationary = as_or<bool>(node["misc"]["save_data_nonstationary"], true);
     std::string log_root = std::string(std::getenv("HOME")) + "/Workspace/vision_log/" + getTimeString();
@@ -314,6 +334,56 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
     std::cout << "det: p_eye2base: \n"
               << p_eye2base.toCVMat() << std::endl;
 
+    bool ground_plane_available = false;
+    if (ground_plane_config_.enable) {
+        ground_plane_frame_count_++;
+        bool should_fit_plane = !ground_plane_cache_.valid ||
+                                (ground_plane_frame_count_ % ground_plane_config_.update_every_n_frames == 0);
+
+        if (ground_plane_cache_.valid) {
+            auto cached_rpy = ground_plane_cache_.last_p_eye2base.getEulerAnglesVec();
+            auto current_rpy = p_eye2base.getEulerAnglesVec();
+            auto angle_delta_deg = [](float lhs, float rhs) {
+                return std::fabs(std::atan2(std::sin(lhs - rhs), std::cos(lhs - rhs))) * 180.0f / CV_PI;
+            };
+            float pitch_delta = angle_delta_deg(current_rpy[1], cached_rpy[1]);
+            float yaw_delta = angle_delta_deg(current_rpy[2], cached_rpy[2]);
+            if (pitch_delta > ground_plane_config_.force_update_head_pitch_delta_deg ||
+                yaw_delta > ground_plane_config_.force_update_head_yaw_delta_deg) {
+                should_fit_plane = true;
+                std::cout << "[GroundPlane] force update by head motion, pitch_delta=" << pitch_delta
+                          << ", yaw_delta=" << yaw_delta << std::endl;
+            }
+        }
+
+        if (should_fit_plane) {
+            ground_plane_available = FitGroundPlaneFromDepth(ground_plane_cache_, depth_float, color, intr_,
+                                                             p_eye2base, timestamp, ground_plane_config_);
+            if (ground_plane_available) {
+                std::cout << "[GroundPlane] updated plane_base=("
+                          << ground_plane_cache_.plane_base[0] << ", "
+                          << ground_plane_cache_.plane_base[1] << ", "
+                          << ground_plane_cache_.plane_base[2] << ", "
+                          << ground_plane_cache_.plane_base[3] << "), inlier_ratio="
+                          << ground_plane_cache_.inlier_ratio << std::endl;
+            } else {
+                std::cout << "[GroundPlane] fit failed: " << ground_plane_cache_.last_failure_reason << std::endl;
+                if (ground_plane_cache_.valid) {
+                    ground_plane_available = PrecomputePlaneTransform(ground_plane_cache_, p_eye2base);
+                    if (ground_plane_available) {
+                        std::cout << "[GroundPlane] reusing previous valid plane after fit failure" << std::endl;
+                    }
+                }
+            }
+        } else {
+            ground_plane_available = PrecomputePlaneTransform(ground_plane_cache_, p_eye2base);
+            if (!ground_plane_available) {
+                std::cout << "[GroundPlane] cache precompute failed: "
+                          << ground_plane_cache_.last_failure_reason << std::endl;
+            }
+        }
+    }
+
     // inference
     auto detections = detector_->Inference(color);
     std::cout << detections.size() << " objects detected." << std::endl;
@@ -374,7 +444,21 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         filtered_detections = detections;
     }
 
+    auto get_ground_target_uv = [](const booster_vision::DetectionRes &detection) {
+        const auto &bbox = detection.bbox;
+        if (detection.class_name == "Ball" ||
+            detection.class_name == "Person" ||
+            detection.class_name == "Opponent" ||
+            detection.class_name == "Goalpost") {
+            return cv::Point2f(bbox.x + bbox.width / 2.0f, bbox.y + bbox.height);
+        }
+        return cv::Point2f(bbox.x + bbox.width / 2.0f, bbox.y + bbox.height / 2.0f);
+    };
+
     std::vector<booster_vision::DetectionRes> detections_for_display;
+    vision_interface::msg::Ball ball_msg;
+    ball_msg.header = detection_msg.header;
+    ball_msg.confidence = 0;
     for (auto &detection : filtered_detections) {
         vision_interface::msg::DetectedObject detection_obj;
 
@@ -382,15 +466,50 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 
         auto pose_estimator = get_estimator(detection.class_name);
         Pose pose_obj_by_color = pose_estimator->EstimateByColor(p_eye2base, detection, color);
-        Pose pose_obj_by_depth = pose_estimator->EstimateByDepth(p_eye2base, detection, color, depth_float);
+        Pose pose_obj_by_depth;
+        std::string position_source = "projection_fallback";
+        std::string fallback_reason;
 
-        // filter out incorrect ball detection
-        if (pose_estimator->use_depth_ && detection.class_name == "Ball" && pose_obj_by_depth == Pose()) {
-            std::cout << "filtered out ball detection by depth" << std::endl;
-            continue;
+        if (ground_plane_available) {
+            cv::Point3f plane_position;
+            cv::Point2f target_uv = get_ground_target_uv(detection);
+            if (CalculatePositionWithCache(plane_position, ground_plane_cache_, p_eye2base, target_uv, intr_, &fallback_reason)) {
+                pose_obj_by_depth = Pose(plane_position.x, plane_position.y, plane_position.z, 0, 0, 0);
+                position_source = "ground_plane";
+            }
+        } else if (ground_plane_config_.enable) {
+            fallback_reason = ground_plane_cache_.last_failure_reason.empty() ? "ground_plane_unavailable" : ground_plane_cache_.last_failure_reason;
         }
+
+        if (pose_obj_by_depth == Pose() && pose_estimator->use_depth_) {
+            Pose object_depth_pose = pose_estimator->EstimateByDepth(p_eye2base, detection, color, depth_float);
+            if (object_depth_pose != Pose()) {
+                pose_obj_by_depth = object_depth_pose;
+                position_source = "object_depth";
+            }
+        }
+
+        if (pose_obj_by_depth == Pose()) {
+            pose_obj_by_depth = pose_obj_by_color;
+        }
+
         detection_obj.position_projection = pose_obj_by_color.getTranslationVec();
         detection_obj.position = pose_obj_by_depth.getTranslationVec();
+
+        if (ground_plane_config_.enable) {
+            auto projection = pose_obj_by_color.getTranslationVec();
+            auto measured = pose_obj_by_depth.getTranslationVec();
+            float delta_xy = std::hypot(measured[0] - projection[0], measured[1] - projection[1]);
+            std::cout << "[GroundPlane] object=" << detection.class_name
+                      << ", source=" << position_source
+                      << ", projection=(" << projection[0] << ", " << projection[1] << ")"
+                      << ", position=(" << measured[0] << ", " << measured[1] << ")"
+                      << ", delta_xy=" << delta_xy;
+            if (!fallback_reason.empty() && position_source == "projection_fallback") {
+                std::cout << ", fallback_reason=" << fallback_reason;
+            }
+            std::cout << std::endl;
+        }
 
         auto xyz = p_head2base.getTranslationVec();
         auto rpy = p_head2base.getEulerAnglesVec();
@@ -415,6 +534,15 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         // publish detection
         detection_msg.detected_objects.push_back(detection_obj);
         detections_for_display.push_back(detection);
+
+        if (detection.class_name == "Ball" && detection.confidence > ball_msg.confidence) {
+            auto value = pose_obj_by_depth.getTranslationVec();
+            if (value[0] >= -2 && value[0] <= 10 && value[1] >= -5 && value[1] <= 5) {
+                ball_msg.x = value[0];
+                ball_msg.y = value[1];
+                ball_msg.confidence = detection.confidence;
+            }
+        }
     }
 
     // compute corner points positision
@@ -422,7 +550,12 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
                                            cv::Point2f(color.cols - 1, color.rows - 1), cv::Point2f(0, color.rows - 1),
                                            cv::Point2f(color.cols / 2.0, color.rows / 2.0)};
     for (auto &uv : corner_uvs) {
-        auto corner_pos = CalculatePositionByIntersection(p_eye2base, uv, intr_);
+        cv::Point3f corner_pos;
+        std::string corner_fallback_reason;
+        if (!ground_plane_available ||
+            !CalculatePositionWithCache(corner_pos, ground_plane_cache_, p_eye2base, uv, intr_, &corner_fallback_reason)) {
+            corner_pos = CalculatePositionByIntersection(p_eye2base, uv, intr_);
+        }
         detection_msg.corner_pos.push_back(corner_pos.x);
         detection_msg.corner_pos.push_back(corner_pos.y);
     }
@@ -448,27 +581,6 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         count++;
     }
 
-    vision_interface::msg::Ball ball_msg;
-    ball_msg.header = detection_msg.header;
-    ball_msg.confidence = 0;
-    for (auto &detection : filtered_detections) {
-        if (detection.class_name == "Ball" && detection.confidence > ball_msg.confidence) {
-            if (detection.confidence <= ball_msg.confidence) {
-               continue;
-            }
-
-            auto pose_estimator = get_estimator(detection.class_name);
-            Pose pose_obj_by_color = pose_estimator->EstimateByColor(p_eye2base, detection, color);
-            auto value = pose_obj_by_color.getTranslationVec();
-            if (value[0] < -2 || value[0] > 10 || value[1] < -5 || value[1] > 5) {
-                continue;
-            }
-            ball_msg.x = value[0];
-            ball_msg.y = value[1];
-            ball_msg.confidence = detection.confidence;
-            break;
-        }
-    }
     ball_pub_->publish(ball_msg);
 
     // show vision results

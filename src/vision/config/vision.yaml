@@ -54,6 +54,17 @@ segmentation_model:
   confidence_threshold: 0.3
   nms_threshold: 0.9
 use_depth: true
+ground_plane:
+  enable: true
+  update_every_n_frames: 5
+  sample_step: 8
+  min_depth: 0.2
+  max_depth: 6.0
+  ransac_distance_threshold: 0.02
+  min_inlier_ratio: 0.35
+  max_normal_tilt_deg: 25
+  force_update_head_pitch_delta_deg: 3
+  force_update_head_yaw_delta_deg: 5
 ball_pose_estimator:
   use_depth: false
   radius: 0.091
@@ -65,7 +76,7 @@ ball_pose_estimator:
   check_ball_height: true
 human_like_pose_estimator:
   use_depth: false
-  down_sample_leaf_size: 0.01
+  downsample_leaf_size: 0.01
   fitting_distance_threshold: 0.01
   statistic_outlier_multiplier: 0.01
 field_marker_pose_estimator:
