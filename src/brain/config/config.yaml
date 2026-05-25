@@ -143,7 +143,7 @@
     debug:
       log_ball_pos: false # 预留：当前未声明/未使用，不会实际记录 ballpos.log。
     
-    game_control_ip: "192.168.26.2" # 裁判机 IP 地址，Brain 会向该地址回传 alive 状态。
+    game_control_ip: "192.168.101.21" # 裁判机 IP 地址，Brain 会向该地址回传 alive 状态。
 
     # 声音和语音播报配置。
     sound:
