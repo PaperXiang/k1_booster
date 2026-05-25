@@ -292,14 +292,14 @@ NodeStatus CamFindBall::tick()
     const double omega = 2.0 * M_PI / headPeriod;
     const double yawCenter = 0.0;
     const double yawAmp = 1.05;
-    const double pitchCenter = 0.22;
-    const double pitchAmp = 0.22;
+    const double pitchCenter = 0.46;
+    const double pitchAmp = 0.30;
     const double maxYawRate = 3.2;
     const double maxPitchRate = 2.2;
-    const double baseYawAcc = 10.0;
-    const double basePitchAcc = 8.5;
-    const double minAccScale = 0.60;
-    const double cmdIntervalMSec = 25.0;
+    const double baseYawAcc = 12.0;
+    const double basePitchAcc = 14.0;
+    const double minAccScale = 0.70;
+    const double cmdIntervalMSec = 33.0;
     const double acquireWindowMSec = 250.0;
     const int acquireCountThreshold = 2;
 
@@ -360,8 +360,8 @@ NodeStatus CamFindBall::tick()
 
     double yawEdgeRatio = cap(fabs(yawRaw - yawCenter) / yawAmp, 1.0, 0.0);
     double pitchEdgeRatio = cap(fabs(pitchRaw - pitchCenter) / pitchAmp, 1.0, 0.0);
-    double yawAcc = baseYawAcc * (minAccScale + (1.0 - minAccScale) * (1.0 - yawEdgeRatio));
-    double pitchAcc = basePitchAcc * (minAccScale + (1.0 - minAccScale) * (1.0 - pitchEdgeRatio));
+    double yawAcc = baseYawAcc * (minAccScale + (1.0 - minAccScale) * yawEdgeRatio);
+    double pitchAcc = basePitchAcc * (minAccScale + (1.0 - minAccScale) * pitchEdgeRatio);
 
     double yawRate = cap(yawRateTarget, _lastYawRate + yawAcc * dt, _lastYawRate - yawAcc * dt);
     double pitchRate = cap(pitchRateTarget, _lastPitchRate + pitchAcc * dt, _lastPitchRate - pitchAcc * dt);
@@ -559,16 +559,16 @@ NodeStatus SimpleChase::tick()
     double ballRange = brain->data->ball.range;
     double ballYawAbs = fabs(brain->data->ball.yawToRobot);
     double linearFactor = 1 / (1 + exp(3 * (ballRange * ballYawAbs) - 3)); // 距离远时, 优先转向
-    double minForwardFactor = ballRange > 2.0 ? 1.0 : (ballRange > stopDist ? 0.65 : 0.0);
+    double minForwardFactor = ballRange > 1.6 ? 1.0 : (ballRange > 1.2 ? 0.80 : (ballRange > 0.5 ? 0.70 : 0.0));
     vx *= max(linearFactor, minForwardFactor);
     vy *= max(linearFactor, 0.25);
 
-    if (ballRange > stopDist && brain->data->ball.posToRobot.x > 0.2)
+    if (brain->data->ball.posToRobot.x > 0.05)
     {
         vx = max(vx, vxLimit * minForwardFactor);
     }
 
-    if (ballRange > 2.0 && brain->data->ball.posToRobot.x > 0.2)
+    if (ballRange > 1.6 && brain->data->ball.posToRobot.x > 0.05)
     {
         vx = vxLimit;
     }
@@ -576,11 +576,10 @@ NodeStatus SimpleChase::tick()
     vx = cap(vx, vxLimit, -0.1);     // 进一步限速
     vy = cap(vy, vyLimit, -vyLimit); // vy 进一步限速
 
-    if (brain->data->ball.range < stopDist)
+    if (ballRange <= 0.5)
     {
         vx = 0;
         vy = 0;
-        // if (fabs(brain->data->ball.yawToRobot) < stopAngle) vtheta = 0; // uncomment 这一行, 会站住. 现在站不太稳, 就让它一直动着吧.
     }
 
     brain->client->setVelocity(vx, vy, vtheta, false, false, false);
