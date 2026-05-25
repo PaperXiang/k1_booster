@@ -114,7 +114,7 @@
     # Rerun 可视化日志配置，用于本地记录和远程实时调试。
     rerunLog:
       enable_tcp: true # 是否通过 TCP 将 log 实时发送到远程 rerun Viewer。
-      server_ip: "192.168.8.135:9876" # 远程 rerun Viewer 地址，格式为 IP:端口。
+      server_ip: "192.168.101.21:9876" # 远程 rerun Viewer 地址，格式为 IP:端口。
       enable_file: true # 是否把 rerun log 写入本地文件。
       log_dir: "/home/booster/Workspace/rrlog" # 本地 log 存储目录，会生成按时间命名的日志文件。
       max_log_file_mins: 5.0 # 单个本地 log 文件最长记录时长，单位分钟；到时会切片，避免文件过大。
