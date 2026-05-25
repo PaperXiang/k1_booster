@@ -337,8 +337,8 @@ void Brain::pubKickMsg() {
     dist = std::abs(dist);
     double power = 0.0;
 
-    if (dist > 6.0) {
-        power = 2.0;
+    if (dist > 8) {
+        power = 4.0;
     } else {
         power = 6.0;
     }
