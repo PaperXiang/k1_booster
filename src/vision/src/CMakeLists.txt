@@ -29,6 +29,7 @@ ament_target_dependencies(vision_node
   tf2
   builtin_interfaces
   vision_interface
+  ball_motion_predictor
 )
 
 

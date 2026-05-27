@@ -23,6 +23,7 @@
 #include "booster_vision/base/pose.h"
 
 #include "booster_vision/color_classifier.hpp"
+#include "ball_motion_predictor/ball_motion_predictor.hpp"
 
 namespace booster_vision {
 
@@ -74,6 +75,8 @@ private:
     GroundPlaneConfig ground_plane_config_;
     GroundPlaneCache ground_plane_cache_;
     int ground_plane_frame_count_ = 0;
+
+    ball_motion_predictor::BallMotionPredictor ball_motion_predictor_;
 
     // post processing
     bool enable_post_process_ = false;

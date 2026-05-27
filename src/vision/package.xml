@@ -13,8 +13,10 @@
     <!-- <depend>cv_bridge</depend> -->
     <depend>sensor_msgs</depend>
     <depend>geometry_msgs</depend>
+    <depend>tf2</depend>
     <depend>builtin_interfaces</depend>
     <depend>vision_interface</depend>
+    <depend>ball_motion_predictor</depend>
 
     <depend>rosidl_default_generators</depend>
     <exec_depend>rosidl_default_runtime</exec_depend>

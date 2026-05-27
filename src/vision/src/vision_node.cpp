@@ -6,6 +6,7 @@
 #include <functional>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <fstream>
 
@@ -182,11 +183,31 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     ground_plane_config_.enable = ground_plane_config_.enable && use_depth_;
     std::cout << "ground_plane.enable: " << ground_plane_config_.enable << std::endl;
     std::cout << "ground_plane.update_every_n_frames: " << ground_plane_config_.update_every_n_frames << std::endl;
+
+    auto ball_motion_config = ball_motion_predictor_.config();
+    if (node["ball_motion_prediction"]) {
+        const auto &motion_node = node["ball_motion_prediction"];
+        ball_motion_config.enable = as_or<bool>(motion_node["enable"], false);
+        ball_motion_config.predict_time = std::max(0.0, as_or<double>(motion_node["predict_time"], 0.25));
+        ball_motion_config.min_dt = std::max(1e-3, as_or<double>(motion_node["min_dt"], 0.02));
+        ball_motion_config.max_dt = std::max(ball_motion_config.min_dt, as_or<double>(motion_node["max_dt"], 0.20));
+        ball_motion_config.max_history_gap = std::max(ball_motion_config.max_dt, as_or<double>(motion_node["max_history_gap"], 0.50));
+        ball_motion_config.max_speed = std::max(0.0, as_or<double>(motion_node["max_speed"], 4.0));
+        ball_motion_config.max_acceleration = std::max(0.0, as_or<double>(motion_node["max_acceleration"], 8.0));
+        ball_motion_config.allow_projection = as_or<bool>(motion_node["allow_projection"], false);
+    }
+    ball_motion_predictor_.setConfig(ball_motion_config);
+    std::cout << "ball_motion_prediction.enable: " << ball_motion_config.enable
+              << ", predict_time: " << ball_motion_config.predict_time << "s"
+              << ", allow_projection: " << ball_motion_config.allow_projection << std::endl;
+
     data_syncer_ = std::make_shared<DataSyncer>(use_depth_);
     bool save_data_nonstationary = as_or<bool>(node["misc"]["save_data_nonstationary"], true);
     std::string log_root = std::string(std::getenv("HOME")) + "/Workspace/vision_log/" + getTimeString();
     data_logger_ = save_data_ ? std::make_shared<DataLogger>(log_root, save_data_nonstationary) : nullptr;
-    data_logger_->LogYAML(node, "vision_local.yaml");
+    if (data_logger_) {
+        data_logger_->LogYAML(node, "vision_local.yaml");
+    }
     seg_data_syncer_ = std::make_shared<DataSyncer>(false);
 
     // init robot color classifier
@@ -459,7 +480,20 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
     vision_interface::msg::Ball ball_msg;
     ball_msg.header = detection_msg.header;
     ball_msg.confidence = 0;
-    for (auto &detection : filtered_detections) {
+
+    int ball_motion_target_index = -1;
+    float best_ball_confidence = -std::numeric_limits<float>::infinity();
+    for (int i = 0; i < static_cast<int>(filtered_detections.size()); ++i) {
+        const auto &candidate = filtered_detections[i];
+        if (detector_->kClassLabels[candidate.class_id] == "Ball" &&
+            candidate.confidence > best_ball_confidence) {
+            best_ball_confidence = candidate.confidence;
+            ball_motion_target_index = i;
+        }
+    }
+
+    for (int detection_index = 0; detection_index < static_cast<int>(filtered_detections.size()); ++detection_index) {
+        auto &detection = filtered_detections[detection_index];
         vision_interface::msg::DetectedObject detection_obj;
 
         detection.class_name = detector_->kClassLabels[detection.class_id];
@@ -493,8 +527,32 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             pose_obj_by_depth = pose_obj_by_color;
         }
 
+        auto measured_translation = pose_obj_by_depth.getTranslationVec();
+        cv::Point3f measured_position(measured_translation[0], measured_translation[1], measured_translation[2]);
+        cv::Point3f optimized_position = measured_position;
+        ball_motion_predictor::Result ball_motion_result;
+        bool dynamic_measurement = position_source == "ground_plane" || position_source == "object_depth";
+        const auto &ball_motion_config = ball_motion_predictor_.config();
+        bool can_predict_ball = detection.class_name == "Ball" &&
+                                detection_index == ball_motion_target_index &&
+                                (dynamic_measurement || ball_motion_config.allow_projection);
+        if (can_predict_ball) {
+            ball_motion_result = ball_motion_predictor_.update(
+                ball_motion_predictor::Point3D{measured_position.x, measured_position.y, measured_position.z},
+                timestamp,
+                dynamic_measurement || ball_motion_config.allow_projection);
+            optimized_position = cv::Point3f(
+                static_cast<float>(ball_motion_result.predicted_position.x),
+                static_cast<float>(ball_motion_result.predicted_position.y),
+                static_cast<float>(ball_motion_result.predicted_position.z));
+        }
+
         detection_obj.position_projection = pose_obj_by_color.getTranslationVec();
-        detection_obj.position = pose_obj_by_depth.getTranslationVec();
+        detection_obj.position = {optimized_position.x, optimized_position.y, optimized_position.z};
+        detection_obj.position_confidence = dynamic_measurement ? 2 : 1;
+        if (ball_motion_result.prediction_applied) {
+            detection_obj.position_confidence = 3;
+        }
 
         if (ground_plane_config_.enable) {
             auto projection = pose_obj_by_color.getTranslationVec();
@@ -509,6 +567,15 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
                 std::cout << ", fallback_reason=" << fallback_reason;
             }
             std::cout << std::endl;
+        }
+
+        if (detection.class_name == "Ball" && detection_index == ball_motion_target_index) {
+            std::cout << "[BallMotion] predicted=" << ball_motion_result.prediction_applied
+                      << ", measured=(" << measured_position.x << ", " << measured_position.y << ")"
+                      << ", optimized=(" << optimized_position.x << ", " << optimized_position.y << ")"
+                      << ", velocity=(" << ball_motion_result.velocity.x << ", " << ball_motion_result.velocity.y << ")"
+                      << ", acceleration=(" << ball_motion_result.acceleration.x << ", " << ball_motion_result.acceleration.y << ")"
+                      << ", position_confidence=" << detection_obj.position_confidence << std::endl;
         }
 
         auto xyz = p_head2base.getTranslationVec();
@@ -536,8 +603,8 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         detections_for_display.push_back(detection);
 
         if (detection.class_name == "Ball" && detection.confidence > ball_msg.confidence) {
-            auto value = pose_obj_by_depth.getTranslationVec();
-            if (value[0] >= -2 && value[0] <= 10 && value[1] >= -5 && value[1] <= 5) {
+            const auto &value = detection_obj.position;
+            if (value.size() >= 2 && value[0] >= -2 && value[0] <= 10 && value[1] >= -5 && value[1] <= 5) {
                 ball_msg.x = value[0];
                 ball_msg.y = value[1];
                 ball_msg.confidence = detection.confidence;
