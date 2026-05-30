@@ -3606,11 +3606,11 @@ NodeStatus AutoCalibrateVision::onStart()
             _res.push_back({p, y, z, 0, 0});
         }
     } else {
-        prtErr("Invalid calibrate state: " + state);
+        prtErr("非法校准状态: " + state);
         return NodeStatus::SUCCESS;
     }
-    cout << "Calibration started, pitch: " << brain->tree->getEntry<double>("calibrate_pitch_center") << ", yaw: " << brain->tree->getEntry<double>("calibrate_yaw_center") << ", z: " << brain->tree->getEntry<double>("calibrate_z_center") << endl;
-    brain->speak(format("Calibration started"));
+    cout << "校准开始，pitch: " << brain->tree->getEntry<double>("calibrate_pitch_center") << ", yaw: " << brain->tree->getEntry<double>("calibrate_yaw_center") << ", z: " << brain->tree->getEntry<double>("calibrate_z_center") << endl;
+    brain->speak(format("校准开始"));
 
     return NodeStatus::RUNNING;
 }
@@ -3798,4 +3798,3 @@ NodeStatus Speak::tick()
     brain->speak(text, false);
     return NodeStatus::SUCCESS;
 }
-

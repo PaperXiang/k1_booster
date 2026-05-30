@@ -17,7 +17,7 @@ public:
             red_bounds_.clear();
             for (const auto &bound : node["red_bounds"]) {
                 if (bound.size() != 6) {
-                    std::cerr << "Invalid red bounds size: " << bound.size() << std::endl;
+                    std::cerr << "红色阈值范围配置长度非法：" << bound.size() << std::endl;
                     continue;
                 }
                 red_bounds_.emplace_back(
@@ -30,7 +30,7 @@ public:
             blue_bounds_.clear();
             for (const auto &bound : node["blue_bounds"]) {
                 if (bound.size() != 6) {
-                    std::cerr << "Invalid red bounds size: " << bound.size() << std::endl;
+                    std::cerr << "蓝色阈值范围配置长度非法：" << bound.size() << std::endl;
                     continue;
                 }
                 blue_bounds_.emplace_back(
@@ -43,7 +43,7 @@ public:
             green_bounds_.clear();
             for (const auto &bound : node["green_bounds"]) {
                 if (bound.size() != 6) {
-                    std::cerr << "Invalid red bounds size: " << bound.size() << std::endl;
+                    std::cerr << "绿色阈值范围配置长度非法：" << bound.size() << std::endl;
                     continue;
                 }
                 green_bounds_.emplace_back(

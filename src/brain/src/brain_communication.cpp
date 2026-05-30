@@ -60,7 +60,7 @@ void BrainCommunication::initGameControllerUnicast()
     }
     catch(const std::exception& e)
     {
-        std::cerr << e.what() << '\n';
+        std::cerr << "初始化裁判机回包发送失败: " << e.what() << '\n';
     }
 }
 
@@ -112,7 +112,7 @@ void BrainCommunication::initDiscoveryBroadcast()
     }
     catch(const std::exception& e)
     {
-        std::cerr << e.what() << '\n';
+        std::cerr << "初始化发现广播失败: " << e.what() << '\n';
         brain->log->log("error/communication", rerun::TextLog(format("初始化发现广播失败: %s", e.what())));
     }
     
@@ -176,7 +176,7 @@ void BrainCommunication::initDiscoveryReceiver()
     }
     catch(const std::exception& e)
     {
-        std::cerr << e.what() << '\n';
+        std::cerr << "初始化发现接收器失败: " << e.what() << '\n';
         brain->log->log("error/communication", rerun::TextLog(format("初始化发现接收器失败: %s", e.what())));
     }
 }
@@ -234,7 +234,7 @@ void BrainCommunication::broadcastDiscovery() {
         int ret = sendto(_discovery_send_socket, &msg, sizeof(msg), 0, (sockaddr *)&_saddr, sizeof(_saddr));
         if (ret < 0)
         {
-            cout << RED_CODE << format("sendto failed: %s", strerror(errno))
+            cout << RED_CODE << format("发送发现广播失败: %s", strerror(errno))
                 << RESET_CODE << endl;
         }
         // cout << GREEN_CODE << format("broadcastDiscovery: %d", msg.communicationId)
@@ -257,25 +257,25 @@ void BrainCommunication::spinDiscoveryReceiver() {
 
         if (len < 0)
         {
-            cout << RED_CODE << format("receiving UDP message failed: %s", strerror(errno))
+            cout << RED_CODE << format("接收 UDP 消息失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             continue;
         }
 
         if (len != sizeof(TeamDiscoveryMsg)) {
-            cout << YELLOW_CODE << format("received TeamDiscoveryMsg packet with wrong size: %ld, expected: %ld", len, sizeof(TeamDiscoveryMsg))
+            cout << YELLOW_CODE << format("收到 TeamDiscoveryMsg 数据包长度错误: %ld, 期望: %ld", len, sizeof(TeamDiscoveryMsg))
                 << RESET_CODE << endl;
             continue;
         }
 
         if (msg.validation != VALIDATION_DISCOVERY) { // fail to pass validation
-            cout << RED_CODE << format("received TeamDiscoveryMsg packet with invalid validation: %d", msg.validation)
+            cout << RED_CODE << format("收到 TeamDiscoveryMsg 数据包校验字段非法: %d", msg.validation)
                 << RESET_CODE << endl;
             continue;
         } 
 
         if (msg.teamId != brain->config->teamId) { // 忽略其它队伍的消息
-            cout << YELLOW_CODE << format("Received message from team %d, expected team %d", msg.teamId, brain->config->teamId)
+            cout << YELLOW_CODE << format("收到其它队伍的消息，队伍=%d，期望队伍=%d", msg.teamId, brain->config->teamId)
                 << RESET_CODE << endl;
             continue;
         }
@@ -310,7 +310,7 @@ void BrainCommunication::cleanupExpiredTeammates() {
     for (auto it = _teammate_addresses.begin(); it != _teammate_addresses.end();) {
         auto timeDiff = this->brain->get_clock()->now().nanoseconds() - it->second.lastUpdate.nanoseconds();
         if (timeDiff > TEAMMATE_TIMEOUT_MS * 1e6) {
-            cout << YELLOW_CODE << format("Teammate id %d timed out", it->second.playerId) 
+            cout << YELLOW_CODE << format("队友 %d 通信超时", it->second.playerId) 
                  << RESET_CODE << endl;
             it = _teammate_addresses.erase(it);
         } else {
@@ -324,9 +324,9 @@ void BrainCommunication::initCommunicationUnicast() {
     {
         _unicast_socket = socket(AF_INET, SOCK_DGRAM, 0);
         if (_unicast_socket < 0) {
-            cout << RED_CODE << format("socket failed: %s", strerror(errno))
+            cout << RED_CODE << format("创建单播发送 socket 失败: %s", strerror(errno))
                 << RESET_CODE << endl;
-            throw std::runtime_error("Failed to create unicast socket");
+            throw std::runtime_error("创建单播发送 socket 失败");
         }
 
         _unicast_saddr.sin_family = AF_INET;
@@ -337,8 +337,8 @@ void BrainCommunication::initCommunicationUnicast() {
     }
     catch(const std::exception& e)
     {
-        std::cerr << e.what() << '\n';
-        brain->log->log("error/communication", rerun::TextLog(format("Failed to initialize unicast communication: %s", e.what())));
+        std::cerr << "初始化单播通信失败: " << e.what() << '\n';
+        brain->log->log("error/communication", rerun::TextLog(format("初始化单播通信失败: %s", e.what())));
     }
     
 }
@@ -384,7 +384,7 @@ void BrainCommunication::unicastCommunication() {
             _unicast_saddr.sin_addr.s_addr = ip;
             int ret = sendto(_unicast_socket, &msg, sizeof(msg), 0, (sockaddr *)&_unicast_saddr, sizeof(_unicast_saddr));
             if (ret < 0) {
-                cout << RED_CODE << format("sendto failed: %s", strerror(errno))
+                cout << RED_CODE << format("发送队友单播消息失败: %s", strerror(errno))
                     << RESET_CODE << endl;
             }
         }
@@ -397,7 +397,7 @@ void BrainCommunication::clearupCommunicationUnicast() {
     if (_unicast_socket >= 0) {
         close(_unicast_socket);
         _unicast_socket = -1;
-        cout << RED_CODE << format("Communication send socket has been closed.")
+        cout << RED_CODE << format("通信发送 socket 已关闭。")
             << RESET_CODE << endl;
     }
 
@@ -411,7 +411,7 @@ void BrainCommunication::initCommunicationReceiver() {
     {
         _communication_recv_socket = socket(AF_INET, SOCK_DGRAM, 0);
         if (_communication_recv_socket < 0) {
-            cout << RED_CODE << format("socket failed: %s", strerror(errno))
+            cout << RED_CODE << format("创建通信接收 socket 失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
@@ -420,7 +420,7 @@ void BrainCommunication::initCommunicationReceiver() {
         int reuse = 1;
         if (setsockopt(_communication_recv_socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
         {
-            cout << RED_CODE << format("Failed to set SO_REUSEADDR: %s", strerror(errno))
+            cout << RED_CODE << format("设置 SO_REUSEADDR 失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
@@ -431,7 +431,7 @@ void BrainCommunication::initCommunicationReceiver() {
         addr.sin_port = htons(_unicast_udp_port);
         
         if (bind(_communication_recv_socket, (sockaddr *)&addr, sizeof(addr)) < 0) {
-            cout << RED_CODE << format("bind failed: %s (port=%d)", strerror(errno), _unicast_udp_port)
+            cout << RED_CODE << format("绑定端口失败: %s (端口=%d)", strerror(errno), _unicast_udp_port)
                 << RESET_CODE << endl;
             throw std::runtime_error(strerror(errno));
         }
@@ -442,8 +442,8 @@ void BrainCommunication::initCommunicationReceiver() {
     }
     catch(const std::exception& e)
     {
-        std::cerr << e.what() << '\n';
-        brain->log->log("error/communication", rerun::TextLog(format("Failed to initialize communication receiver: %s", e.what())));
+        std::cerr << "初始化通信接收器失败: " << e.what() << '\n';
+        brain->log->log("error/communication", rerun::TextLog(format("初始化通信接收器失败: %s", e.what())));
     }
 }
 
@@ -462,25 +462,25 @@ void BrainCommunication::spinCommunicationReceiver() {
         ssize_t len = recvfrom(_communication_recv_socket, &msg, sizeof(msg), 0, (sockaddr *)&addr, &addr_len);
 
         if (len < 0) {
-            cout << RED_CODE << format("receiving UDP message failed: %s", strerror(errno))
+            cout << RED_CODE << format("接收 UDP 消息失败: %s", strerror(errno))
                 << RESET_CODE << endl;
             continue;
         }
 
         if (len != sizeof(TeamCommunicationMsg)) {
-            cout << YELLOW_CODE << format("received TeamCommunicationMsg packet with wrong size: %ld, expected: %ld", len, sizeof(TeamCommunicationMsg))
+            cout << YELLOW_CODE << format("收到 TeamCommunicationMsg 数据包长度错误: %ld, 期望: %ld", len, sizeof(TeamCommunicationMsg))
                 << RESET_CODE << endl;
             continue;
         }
 
         if (msg.validation != VALIDATION_COMMUNICATION) { // fail to pass validation
-            cout << RED_CODE << format("received TeamCommunicationMsg packet with invalid validation: %d", msg.validation)
+            cout << RED_CODE << format("收到 TeamCommunicationMsg 数据包校验字段非法: %d", msg.validation)
                 << RESET_CODE << endl;
             continue;
         }
 
         if (msg.teamId != brain->config->teamId) { // 忽略其它队伍的消息
-            cout << YELLOW_CODE << format("Received message from team %d, expected team %d", msg.teamId, brain->config->teamId)
+            cout << YELLOW_CODE << format("收到其它队伍的消息，队伍=%d，期望队伍=%d", msg.teamId, brain->config->teamId)
                 << RESET_CODE << endl;
             continue;
         }
@@ -488,7 +488,7 @@ void BrainCommunication::spinCommunicationReceiver() {
         if (msg.playerId == brain->config->playerId) {  // 忽略自己的消息
             // 处理自己的消息
             cout << CYAN_CODE <<  format(
-                "communicationId: %d, alive: %d, ballDetected: %d ballRange: %.2f playerId: %d",
+                "通信ID: %d, 存活: %d, 看到球: %d, 球距离: %.2f, 球员ID: %d",
                 msg.communicationId, msg.isAlive, msg.ballDetected, msg.ballRange, msg.playerId)
                 << RESET_CODE << endl;
             brain->data->sendId = msg.communicationId;
@@ -504,16 +504,16 @@ void BrainCommunication::spinCommunicationReceiver() {
         auto tmIdx = msg.playerId - 1;
 
         if (tmIdx < 0 || tmIdx >= HL_MAX_NUM_PLAYERS) { // HL_MAX_NUM_PLAYERS 是最大球员数
-            cout << YELLOW_CODE << format("Received message with invalid playerId: %d", msg.playerId) << RESET_CODE << endl;
+            cout << YELLOW_CODE << format("收到非法球员 ID 的通信消息: %d", msg.playerId) << RESET_CODE << endl;
             continue;
         }
 
         if (brain->data->penalty[tmIdx] == SUBSTITUTE) { // 不处理替补队员的信息
-            cout << YELLOW_CODE << format("Communication playerId %d is substitute", msg.playerId) << RESET_CODE << endl;
+            cout << YELLOW_CODE << format("球员 %d 是替补队员，忽略通信消息", msg.playerId) << RESET_CODE << endl;
             continue;
         }
 
-        log(format("TMID: %.d, alive: %d, lead: %d, cost: %.1f, CmdId: %d, Cmd: %d", msg.playerId, msg.isAlive, msg.isLead, msg.cost, msg.cmdId, msg.cmd));
+        log(format("队友ID: %.d, 存活: %d, 主控: %d, 成本: %.1f, 指令ID: %d, 指令: %d", msg.playerId, msg.isAlive, msg.isLead, msg.cost, msg.cmdId, msg.cmd));
 
         TMStatus &tmStatus = brain->data->tmStatus[tmIdx];
         
@@ -538,7 +538,7 @@ void BrainCommunication::spinCommunicationReceiver() {
             brain->data->tmCmdId = msg.cmdId;
             brain->data->tmReceivedCmd = msg.cmd;
             brain->data->tmLastCmdChangeTime = brain->get_clock()->now();
-            log(format("Received new command from teammate %d: %d", msg.playerId, msg.cmd));
+            log(format("收到队友 %d 的新指令: %d", msg.playerId, msg.cmd));
         }
 
     }
@@ -549,7 +549,7 @@ void BrainCommunication::clearupCommunicationReceiver() {
     if (_communication_recv_socket >= 0) {
         close(_communication_recv_socket);
         _communication_recv_socket = -1;
-        cout << RED_CODE << format("Communication receive socket has been closed.")
+        cout << RED_CODE << format("通信接收 socket 已关闭。")
             << RESET_CODE << endl;
     }
     if (_communication_recv_thread.joinable()) {

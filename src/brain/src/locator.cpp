@@ -13,9 +13,9 @@ void Locator::init(FieldDimensions fd, int minMarkerCntParam, double residualTol
     logIP = logIPParam;
     if (enableLog) {
         auto connectError = log.connect(logIP);
-        if (connectError.is_err()) prtErr(format("Rerun log connect Error: %s", connectError.description.c_str()));
+        if (connectError.is_err()) prtErr(format("连接 Rerun 日志服务失败：%s", connectError.description.c_str()));
         auto saveError = log.save("/home/booster/log.rrd");
-        if (saveError.is_err()) prtErr(format("Rerun log save Error: %s", saveError.description.c_str()));
+        if (saveError.is_err()) prtErr(format("保存 Rerun 日志失败：%s", saveError.description.c_str()));
     }
     
 }

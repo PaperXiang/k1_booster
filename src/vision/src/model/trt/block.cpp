@@ -14,7 +14,7 @@ int calculateP(int ksize) {
 }
 
 std::map<std::string, nvinfer1::Weights> loadWeights(const std::string file) {
-    std::cout << "Loading weights: " << file << std::endl;
+    std::cout << "正在加载权重文件：" << file << std::endl;
     std::map<std::string, nvinfer1::Weights> WeightMap;
 
     std::ifstream input(file);

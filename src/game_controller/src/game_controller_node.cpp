@@ -18,14 +18,14 @@ GameControllerNode::GameControllerNode(string name) : rclcpp::Node(name)
 
     // 从配置中读取参数，注意把读取到的参数打印到日志中方便查问题
     get_parameter("port", _port);
-    RCLCPP_INFO(get_logger(), "[get_parameter] port: %d", _port);
+    RCLCPP_INFO(get_logger(), "[读取参数] 监听端口：%d", _port);
     get_parameter("enable_ip_white_list", _enable_ip_white_list);
-    RCLCPP_INFO(get_logger(), "[get_parameter] enable_ip_white_list: %d", _enable_ip_white_list);
+    RCLCPP_INFO(get_logger(), "[读取参数] 是否启用 IP 白名单：%d", _enable_ip_white_list);
     get_parameter("ip_white_list", _ip_white_list);
-    RCLCPP_INFO(get_logger(), "[get_parameter] ip_white_list(len=%ld)", _ip_white_list.size());
+    RCLCPP_INFO(get_logger(), "[读取参数] IP 白名单数量：%ld", _ip_white_list.size());
     for (size_t i = 0; i < _ip_white_list.size(); i++)
     {
-        RCLCPP_INFO(get_logger(), "[get_parameter]     --[%ld]: %s", i, _ip_white_list[i].c_str());
+        RCLCPP_INFO(get_logger(), "[读取参数]     --[%ld]: %s", i, _ip_white_list[i].c_str());
     }
 
     // 创建 publisher，发布到 /game_state
@@ -55,7 +55,7 @@ void GameControllerNode::init()
     _socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (_socket < 0)
     {
-        RCLCPP_ERROR(get_logger(), "socket failed: %s", strerror(errno));
+        RCLCPP_ERROR(get_logger(), "创建 socket 失败：%s", strerror(errno));
         throw runtime_error(strerror(errno));
     }
 
@@ -69,12 +69,12 @@ void GameControllerNode::init()
     // 绑定地址，失败了就抛异常
     if (bind(_socket, (sockaddr *)&addr, sizeof(addr)) < 0)
     {
-        RCLCPP_ERROR(get_logger(), "bind failed: %s (port=%d)", strerror(errno), _port);
+        RCLCPP_ERROR(get_logger(), "绑定端口失败：%s，端口=%d", strerror(errno), _port);
         throw runtime_error(strerror(errno));
     }
 
     // bind 成功后就可以开始从 socket 里接收数据了
-    RCLCPP_INFO(get_logger(), "Listening for UDP broadcast on 0.0.0.0:%d", _port);
+    RCLCPP_INFO(get_logger(), "正在监听 UDP 广播，地址：0.0.0.0:%d", _port);
 
     // 启用一个新的线程来接收数据，主线程进入 Node 自身的 spin，处理一些 Node 自己的服务
     _thread = thread(&GameControllerNode::spin, this);
@@ -97,7 +97,7 @@ void GameControllerNode::spin()
         ssize_t ret = recvfrom(_socket, &data, sizeof(data), 0, (sockaddr *)&remote_addr, &remote_addr_len);
         if (ret < 0)
         {
-            RCLCPP_ERROR(get_logger(), "receiving UDP message failed: %s", strerror(errno));
+            RCLCPP_ERROR(get_logger(), "接收 UDP 消息失败：%s", strerror(errno));
             continue;
         }
 
@@ -107,20 +107,20 @@ void GameControllerNode::spin()
         // 接收到不完整的包或其它非法的包，忽略掉
         if (ret != sizeof(data))
         {
-            RCLCPP_INFO(get_logger(), "packet from %s invalid length=%ld", remote_ip.c_str(), ret);
+            RCLCPP_INFO(get_logger(), "来自 %s 的数据包长度非法，长度=%ld", remote_ip.c_str(), ret);
             continue;
         }
 
         if (data.version != HL_GAMECONTROLLER_STRUCT_VERSION)
         {
-            RCLCPP_INFO(get_logger(), "packet from %s invalid version: %d", remote_ip.c_str(), data.version);
+            RCLCPP_INFO(get_logger(), "来自 %s 的数据包版本非法，版本=%d", remote_ip.c_str(), data.version);
             continue;
         }
 
         // 过滤 IP 白名单
         if (!check_ip_white_list(remote_ip))
         {
-            RCLCPP_INFO(get_logger(), "received packet from %s, but not in ip white list, ignore it", remote_ip.c_str());
+            RCLCPP_INFO(get_logger(), "收到来自 %s 的数据包，但该 IP 不在白名单中，已忽略。", remote_ip.c_str());
             continue;
         }
 
@@ -130,7 +130,7 @@ void GameControllerNode::spin()
         // 将消息发布到 Topic 中
         _publisher->publish(msg);
 
-        RCLCPP_INFO(get_logger(), "handle packet successfully ip=%s, packet_number=%d", remote_ip.c_str(), data.packetNumber);
+        RCLCPP_INFO(get_logger(), "成功处理数据包，来源 IP=%s，包序号=%d", remote_ip.c_str(), data.packetNumber);
     }
 }
 

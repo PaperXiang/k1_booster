@@ -41,7 +41,7 @@ void BallPoseEstimator::Init(const YAML::Node &node) {
     minimum_cluster_size_ = as_or<int>(node["minimum_cluster_size"], 150);
     filter_distance_ = as_or<float>(node["filter_distance"], 1.0);
     check_ball_height_ = as_or<bool>(node["check_ball_height"], false);
-    std::cout << "filter_distance: " << filter_distance_ << std::endl;
+    std::cout << "球深度估计过滤距离：" << filter_distance_ << std::endl;
 }
 
 Pose BallPoseEstimator::EstimateByColor(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb) {
@@ -57,7 +57,7 @@ Pose BallPoseEstimator::EstimateByDepth(const Pose &p_eye2base, const DetectionR
 
     auto pose = EstimateByColor(p_eye2base, detection, cv::Mat());
     if (cv::norm(pose.getTranslationVec()) > filter_distance_) return pose;
-    std::cout << "ball distance by color: " << cv::norm(pose.getTranslationVec()) << std::endl;
+    std::cout << "基于颜色估计的球距离：" << cv::norm(pose.getTranslationVec()) << std::endl;
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     CreatePointCloud(cloud, depth, rgb, detection.bbox, intr_);
@@ -80,9 +80,9 @@ Pose BallPoseEstimator::EstimateByDepth(const Pose &p_eye2base, const DetectionR
         SphereFitting(sphere, confidence, cluster, fitting_distance_threshold_, radius_);
 
         if (confidence > 0.5) {
-            std::cout << "ball z in robot frame by color: " << pose.getTranslationVec()[2] << std::endl;
+            std::cout << "基于颜色估计的球在机器人坐标系 z 值：" << pose.getTranslationVec()[2] << std::endl;
             pose = p_eye2base * Pose(sphere[0], sphere[1], sphere[2], 0, 0, 0);
-            std::cout << "ball z in robot frame: " << pose.getTranslationVec()[2] << std::endl;
+            std::cout << "深度拟合后的球在机器人坐标系 z 值：" << pose.getTranslationVec()[2] << std::endl;
             if (check_ball_height_ && pose.getTranslationVec()[2] < -0.03) {
                 continue;
             }

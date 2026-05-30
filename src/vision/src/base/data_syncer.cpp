@@ -8,7 +8,7 @@ namespace booster_vision {
 
 void DataSyncer::LoadData(const std::string &data_dir) {
     if (!std::filesystem::is_directory(data_dir)) {
-        throw std::runtime_error("data directory does not exist: " + data_dir);
+        throw std::runtime_error("数据目录不存在: " + data_dir);
     }
     data_dir_ = data_dir;
     // list all files in the directory
@@ -23,13 +23,13 @@ void DataSyncer::LoadData(const std::string &data_dir) {
         if (std::regex_match(file, m, color_file_regex)) {
             double timestamp = std::stod(m[1].str());
             // std::cout << std::fixed << timestamp << std::endl;
-            std::cout << "found timestamp : " << std::fixed << timestamp << std::endl;
+            std::cout << "发现时间戳：" << std::fixed << timestamp << std::endl;
             time_stamp_list_.push_back(timestamp);
         }
     }
     std::sort(time_stamp_list_.begin(), time_stamp_list_.end());
     data_index_ = 0;
-    std::cout << "loaded " << time_stamp_list_.size() << " data" << std::endl;
+    std::cout << "已加载 " << time_stamp_list_.size() << " 条数据" << std::endl;
 }
 
 void DataSyncer::AddDepth(const DepthDataBlock &depth_data) {
@@ -56,7 +56,7 @@ SyncedDataBlock DataSyncer::getSyncedDataBlock() {
         color_data.timestamp = timestamp;
         synced_data.color_data = color_data;
     } else {
-        std::cout << "color file not found: " << color_file_path << std::endl;
+        std::cout << "未找到彩色图文件：" << color_file_path << std::endl;
     }
 
     if (enable_depth_) {
@@ -66,7 +66,7 @@ SyncedDataBlock DataSyncer::getSyncedDataBlock() {
             depth_data.timestamp = timestamp;
             synced_data.depth_data = depth_data;
         } else {
-            std::cout << "depth file not found: " << depth_file_path << std::endl;
+            std::cout << "未找到深度图文件：" << depth_file_path << std::endl;
         }
     }
 
@@ -81,12 +81,12 @@ SyncedDataBlock DataSyncer::getSyncedDataBlock() {
         pose_data.timestamp = timestamp;
         synced_data.pose_data = pose_data;
     } else {
-        std::cout << "pose file not found: " << pose_file_path << std::endl;
+        std::cout << "未找到位姿文件：" << pose_file_path << std::endl;
     }
 
     data_index_ = (data_index_ + 1) % time_stamp_list_.size();
     if (data_index_ == 0) {
-        std::cout << "looped all data, reset index to 0" << std::endl;
+        std::cout << "已遍历全部数据，索引重置为 0" << std::endl;
     }
     return synced_data;
 }

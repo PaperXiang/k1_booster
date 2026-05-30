@@ -153,7 +153,7 @@ int RobotClient::RLVisionKick(bool start)
     nlohmann::json body;
     body["start"] = start;
     msg.body = body.dump();
-    std::cout << "[调试] 调用视觉踢球 start=" << (start ? "true" : "false") << ", api_id=" << msg.api_id << std::endl;
+    std::cout << "[调试] 调用视觉踢球：启动=" << (start ? "是" : "否") << "，API ID=" << msg.api_id << std::endl;
     return call(msg);
 }
 

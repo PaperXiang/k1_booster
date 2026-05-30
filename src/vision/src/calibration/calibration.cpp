@@ -26,7 +26,7 @@ double Compute2dError(
             error += cv::norm(diff);
         }
         error /= all_corners_2d[i].size();
-        std::cout << "frame " << i << " error: " << error << std::endl;
+        std::cout << "第 " << i << " 帧误差：" << error << std::endl;
         avg_error += error;
     }
     // cv::destroyWindow("reprojection");
@@ -61,14 +61,14 @@ void EyeInHandCalibration(double *reprojection_error,
 
     *reprojection_error = std::numeric_limits<double>::max();
     for (int method = 0; method < 5; method++) {
-        std::cout << "calibrate round: " << method << std::endl;
+        std::cout << "校准轮次：" << method << std::endl;
         cv::Mat r_eye2head;
         cv::Mat t_eye2head;
         try {
             cv::calibrateHandEye(r_head2bases, t_head2bases, r_board2cameras, t_board2cameras,
                                  r_eye2head, t_eye2head, static_cast<cv::HandEyeCalibrationMethod>(method));
         } catch (const cv::Exception &e) {
-            std::cerr << "calibrateHandEye failed: " << e.what() << std::endl;
+            std::cerr << "手眼标定失败：" << e.what() << std::endl;
             continue;
         }
 
@@ -77,10 +77,10 @@ void EyeInHandCalibration(double *reprojection_error,
         Pose p_board2base = p_head2bases[0] * p_eye2head * p_board2eye;
 
         double error = Compute2dError(all_corners_3d, all_corners_2d, p_head2bases, p_board2base, p_eye2head, intr);
-        std::cout << "reprojection error: " << error << std::endl;
+        std::cout << "重投影误差：" << error << std::endl;
 
         if (error > 250) {
-            std::cerr << "reprojection error too large, skip optimization" << std::endl;
+            std::cerr << "重投影误差过大，跳过优化。" << std::endl;
             continue;
         }
 
@@ -91,7 +91,7 @@ void EyeInHandCalibration(double *reprojection_error,
                 *p_board2base_best = p_board2base;
             }
         } else {
-            std::cout << "optimizaiting ..." << std::endl;
+            std::cout << "正在优化..." << std::endl;
 
             auto p_head2cam = p_eye2head.inverse();
             Eigen::Quaterniond q_head2cam = Eigen::Map<Eigen::Quaterniond>(p_head2cam.getQuaternionVec().data());
@@ -147,14 +147,14 @@ void EyeInHandCalibration(double *reprojection_error,
             Pose p_head2cam_opt(t_head2cam_opt(0), t_head2cam_opt(1), t_head2cam_opt(2),
                                 q_head2cam_opt.x(), q_head2cam_opt.y(), q_head2cam_opt.z(), q_head2cam_opt.w());
 
-            std::cout << "extrinsics before optimization: \n"
+            std::cout << "优化前外参：\n"
                       << p_eye2head << std::endl
-                      << "extrinsics after optimization: \n"
+                      << "优化后外参：\n"
                       << p_head2cam_opt.inverse() << std::endl;
 
-            std::cout << "board2base before optimization: \n"
+            std::cout << "优化前标定板到基座位姿：\n"
                       << p_board2base << std::endl
-                      << "board2base after optimization: \n"
+                      << "优化后标定板到基座位姿：\n"
                       << p_board2base_opt << std::endl;
 
             if (optimized_error < initial_error) {
@@ -162,7 +162,7 @@ void EyeInHandCalibration(double *reprojection_error,
                 p_board2base = p_board2base_opt;
 
                 double error = Compute2dError(all_corners_3d, all_corners_2d, p_head2bases, p_board2base, p_eye2head, intr);
-                std::cout << "reprojection error after optimizaiton: " << error << std::endl;
+                std::cout << "优化后重投影误差：" << error << std::endl;
 
                 if (*reprojection_error > optimized_error) {
                     *reprojection_error = error;

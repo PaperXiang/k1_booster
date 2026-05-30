@@ -258,7 +258,7 @@ void Brain::loadConfig()
     get_parameter("vision_config_local_path", visionConfigLocalPath);
     if (!filesystem::exists(visionConfigPath)) {
         // 报错然后退出
-        RCLCPP_ERROR(get_logger(), "vision_config_path %s not exists", visionConfigPath.c_str());
+        RCLCPP_ERROR(get_logger(), "视觉配置文件不存在：%s", visionConfigPath.c_str());
         exit(1);
     }
     // else
@@ -1138,7 +1138,7 @@ rclcpp::Time Brain::timePointFromHeader(std_msgs::msg::Header header) {
     if (sec <= 0 || nanosec <= 0) {
         sec = 1;
         nanosec = 1;
-        prtErr(format("Negative time: sec: %d nanosec: %d"));
+        prtErr(format("收到非法时间戳：sec=%d, nanosec=%d", sec, nanosec));
     }
     return rclcpp::Time(sec, nanosec, RCL_ROS_TIME); // should not crash
     // return rclcpp::Time(stamp.sec, stamp.nanosec, RCL_ROS_TIME);  // should crash sometimes
@@ -1349,7 +1349,7 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     else
     {
         // 数据包中没有包含我们的队，不应该再处理了
-        prtErr(format("received invalid game controller message team0 %d, team1 %d, teamId %d",
+        prtErr(format("收到非法裁判机消息：team0=%d, team1=%d, 当前队伍=%d",
             msg.teams[0].team_number, msg.teams[1].team_number, config->teamId));
         return;
     }
@@ -1682,7 +1682,7 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
             // NV12: Y plane (H x W) + interleaved UV (H/2 x W)
             size_t expected = (size_t)(msg.width * msg.height * 3 / 2);
             if (msg.data.size() < expected) {
-                prtErr(format("NV12 buffer too small. got %zu expect >= %zu", msg.data.size(), expected));
+                prtErr(format("NV12 图像缓冲区过小：实际=%zu，期望至少=%zu", msg.data.size(), expected));
                 return;
             }
             cv::Mat yuv(msg.height + msg.height / 2, msg.width, CV_8UC1, const_cast<uint8_t*>(msg.data.data()));
@@ -1703,7 +1703,7 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
             cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
         } else {
             // 处理其他编码格式，或者记录错误日志
-            prtErr(format("Unsupported image encoding: %s", msg.encoding.c_str()));
+            prtErr(format("不支持的图像编码格式：%s", msg.encoding.c_str()));
             return;
         }
 

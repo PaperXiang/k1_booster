@@ -153,7 +153,7 @@ void ClusterPointCloud(std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> &clus
     std::vector<pcl::PointIndices> cluster_indices;
     ec.extract(cluster_indices);
 
-    std::cout << "number of cluster: " << cluster_indices.size() << std::endl;
+    std::cout << "点云聚类数量：" << cluster_indices.size() << std::endl;
     // If no clusters found, return false
     if (cluster_indices.empty()) {
         clustered_clouds = {};
@@ -161,7 +161,7 @@ void ClusterPointCloud(std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> &clus
     }
 
     for (const auto &indices : cluster_indices) {
-        std::cout << "cluster size: " << indices.indices.size() << std::endl;
+        std::cout << "点云聚类大小：" << indices.indices.size() << std::endl;
         // if (indices.indices.size() < cloud->points.size() * 0.20) {
         //   std::cout << "cluster size: " << indices.indices.size() << " smaller than threshold, skip!" << std::endl;
         //   continue; // skip cluster with size smaller than fifth of the input cloud
@@ -194,17 +194,17 @@ void SphereFitting(std::vector<float> &sphere, float &confidence, const pcl::Poi
 
     confidence = static_cast<float>(inliers.indices.size()) / cloud->points.size();
     if (confidence < 0.5) {
-        std::cout  << "confidence " << confidence << " lower than expected 0.5, inliner conunts: " << inliers.indices.size() << std::endl;
+        std::cout  << "球体拟合置信度 " << confidence << " 低于期望值 0.5，内点数量：" << inliers.indices.size() << std::endl;
         return;
     }
 
     sphere = coefficients.values;
     if (std::abs(coefficients.values[3] - radius_threshold) > 0.02) {
-        std::cout << "raidus " << coefficients.values[3] << " higher than expected " << radius_threshold << std::endl;
+        std::cout << "拟合半径 " << coefficients.values[3] << " 与期望半径 " << radius_threshold << " 偏差过大" << std::endl;
         confidence = 0;
         return;
     }
-    std::cout << " radius: " << coefficients.values[3] << std::endl;
+    std::cout << "拟合半径：" << coefficients.values[3] << std::endl;
 }
 
 void PlaneFitting(std::vector<float> &plane, float &confidence,
@@ -229,13 +229,13 @@ void PlaneFitting(std::vector<float> &plane, float &confidence,
         return;
     }
 
-    std::cout << "Model coefficients: " << coefficients->values[0] << " "
+    std::cout << "平面模型系数：" << coefficients->values[0] << " "
               << coefficients->values[1] << " "
               << coefficients->values[2] << " "
               << coefficients->values[3] << std::endl;
     plane = coefficients->values;
     confidence = static_cast<float>(inliers->indices.size()) / cloud->size();
-    std::cout << "inlier percentage: " << confidence << std::endl;
+    std::cout << "内点比例：" << confidence << std::endl;
 
     auto point = cloud->points[inliers->indices[0]];
     // VisualizePointCloudandPlane(cloud, plane, point.x, point.y, point.z);

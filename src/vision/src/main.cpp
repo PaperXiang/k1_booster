@@ -2,7 +2,7 @@
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::cerr << "Usage: vision_node <config_template_file> <config_file>" << std::endl;
+        std::cerr << "用法：vision_node <配置模板文件> <配置文件>" << std::endl;
         return -1;
     }
     rclcpp::init(argc, argv);

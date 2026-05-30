@@ -44,20 +44,20 @@ VisionNode::VisionNode(const std::string &node_name) :
 void VisionNode::Init(const std::string &cfg_template_path, const std::string &cfg_path) {
     if (!std::filesystem::exists(cfg_template_path)) {
         // TODO(SS): throw exception here
-        std::cerr << "Error: Configuration template file '" << cfg_template_path << "' does not exist." << std::endl;
+        std::cerr << "错误：配置模板文件 '" << cfg_template_path << "' 不存在。" << std::endl;
         return;
     }
 
     YAML::Node node = YAML::LoadFile(cfg_template_path);
     if (!std::filesystem::exists(cfg_path)) {
-        std::cout << "Warning: Configuration file empty!" << std::endl;
+        std::cout << "警告：配置文件为空或不存在，将使用模板默认配置。" << std::endl;
     } else {
         YAML::Node cfg_node = YAML::LoadFile(cfg_path);
         // merge input cfg to template cfg
         MergeYAML(node, cfg_node);
     }
 
-    std::cout << "loaded file: " << std::endl
+    std::cout << "已加载配置：" << std::endl
               << node << std::endl;
 
     this->get_parameter<bool>("show_det", show_det_);
@@ -67,7 +67,7 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     this->get_parameter<bool>("offline_mode", offline_mode_);
     this->get_parameter<std::string>("camera_type", camera_type_);
     this->get_parameter<std::string>("detection_model_path", detection_model_path);
-    std::cout << "detection_model_path origin: " << detection_model_path << std::endl;
+    std::cout << "检测模型路径原始值：" << detection_model_path << std::endl;
 
     if(!detection_model_path.empty()){
         if(detection_model_path[0] == '/') {
@@ -80,7 +80,7 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
 
 
     this->get_parameter<std::string>("segmentation_model_path", segmentation_model_path);
-    std::cout << "segmentation_model_path origin: " << segmentation_model_path << std::endl;
+    std::cout << "分割模型路径原始值：" << segmentation_model_path << std::endl;
 
     if(!segmentation_model_path.empty()){
         if(segmentation_model_path[0] == '/') {
@@ -94,27 +94,27 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     int save_fps = 0;
     this->get_parameter<int>("save_fps", save_fps);
     save_depth_ = save_depth_ && save_data_;
-    std::cout << "offline_mode: " << offline_mode_ << std::endl;
-    std::cout << "show_det: " << show_det_ << std::endl;
-    std::cout << "show_seg: " << show_seg_ << std::endl;
-    std::cout << "save_data: " << save_data_ << std::endl;
-    std::cout << "save_depth: " << save_depth_ << std::endl;
-    std::cout << "save_fps: " << save_fps << std::endl;
-    std::cout << "camera_type: " << camera_type_ << std::endl;
-    std::cout << "detection_model_path: " << detection_model_path << std::endl;
-    std::cout << "segmentation_model_path: " << segmentation_model_path << std::endl;
+    std::cout << "离线模式：" << offline_mode_ << std::endl;
+    std::cout << "显示检测结果：" << show_det_ << std::endl;
+    std::cout << "显示分割结果：" << show_seg_ << std::endl;
+    std::cout << "保存数据：" << save_data_ << std::endl;
+    std::cout << "保存深度图：" << save_depth_ << std::endl;
+    std::cout << "数据保存帧率：" << save_fps << std::endl;
+    std::cout << "相机类型：" << camera_type_ << std::endl;
+    std::cout << "检测模型路径：" << detection_model_path << std::endl;
+    std::cout << "分割模型路径：" << segmentation_model_path << std::endl;
     save_every_n_frame_ = std::max(1, save_fps > 0 ? 30 / save_fps : 1);
-    std::cout << "save_every_n_frame: " << save_every_n_frame_ << std::endl;
+    std::cout << "每隔多少帧保存一次：" << save_every_n_frame_ << std::endl;
 
     // read camera param
     if (!node["camera"]) {
         // TODO(SS): throw exception here
-        std::cerr << "no camera param found here" << std::endl;
+        std::cerr << "未找到相机参数配置。" << std::endl;
         return;
     } else {
         if(camera_type_.empty())
         {
-            std::cout << "camera type not overridden by launch file, using default: " << node["camera"]["type"].as<std::string>() << std::endl;
+            std::cout << "launch 文件未覆盖相机类型，使用默认配置：" << node["camera"]["type"].as<std::string>() << std::endl;
             camera_type_ = node["camera"]["type"].as<std::string>();
         }
         intr_ = Intrinsics(node["camera"]["intrin"]);
@@ -129,7 +129,7 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
 
     // init detector
     if (!node["detection_model"]) {
-        std::cerr << "no detection model param here" << std::endl;
+        std::cerr << "未找到检测模型参数配置。" << std::endl;
         return;
     } else {
         detector_ = YoloV8Detector::CreateYoloV8Detector(node["detection_model"], detection_model_path);
@@ -150,13 +150,13 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
                     }
                 }
             } else {
-                std::cout << "all class apply same default threshold: " << default_threshold << std::endl;
+                std::cout << "所有类别使用相同的默认置信度阈值：" << default_threshold << std::endl;
             }
         }
     }
 
     if (!node["segmentation_model"]) {
-        std::cerr << "no segmentation model param found" << std::endl;
+        std::cerr << "未找到分割模型参数配置。" << std::endl;
     } else {
         segmentor_ = YoloV8Segmentor::CreateYoloV8Segmentor(node["segmentation_model"], segmentation_model_path);
     }
@@ -181,8 +181,8 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         ground_plane_config_.max_ground_height = as_or<float>(ground_node["max_ground_height"], 0.25f);
     }
     ground_plane_config_.enable = ground_plane_config_.enable && use_depth_;
-    std::cout << "ground_plane.enable: " << ground_plane_config_.enable << std::endl;
-    std::cout << "ground_plane.update_every_n_frames: " << ground_plane_config_.update_every_n_frames << std::endl;
+    std::cout << "地面平面估计开关：" << ground_plane_config_.enable << std::endl;
+    std::cout << "地面平面每隔多少帧更新一次：" << ground_plane_config_.update_every_n_frames << std::endl;
 
     auto ball_motion_config = ball_motion_predictor_.config();
     if (node["ball_motion_prediction"]) {
@@ -197,9 +197,9 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         ball_motion_config.allow_projection = as_or<bool>(motion_node["allow_projection"], false);
     }
     ball_motion_predictor_.setConfig(ball_motion_config);
-    std::cout << "ball_motion_prediction.enable: " << ball_motion_config.enable
-              << ", predict_time: " << ball_motion_config.predict_time << "s"
-              << ", allow_projection: " << ball_motion_config.allow_projection << std::endl;
+    std::cout << "球运动预测开关：" << ball_motion_config.enable
+              << "，预测时间：" << ball_motion_config.predict_time << "s"
+              << "，允许投影预测：" << ball_motion_config.allow_projection << std::endl;
 
     data_syncer_ = std::make_shared<DataSyncer>(use_depth_);
     bool save_data_nonstationary = as_or<bool>(node["misc"]["save_data_nonstationary"], true);
@@ -240,7 +240,7 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
 
     // init ros related
 
-    std::cout << "current camera_type : " << camera_type_ << std::endl;
+    std::cout << "当前相机类型：" << camera_type_ << std::endl;
     std::string color_topic;
     std::string depth_topic;
     if (camera_type_.find("zed") != std::string::npos) {
@@ -311,7 +311,7 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     detection_pub_ = this->create_publisher<vision_interface::msg::Detections>("/booster_vision/detection", rclcpp::QoS(1));
 
     if (node["segmentation_model"]) {
-        std::cout << "create sub for segmentor" << std::endl;
+        std::cout << "为分割模型创建图像订阅。" << std::endl;
         if (camera_type_.find("compressed") != std::string::npos) {
             color_seg_sub_ = it_->subscribe(color_topic, 1, &VisionNode::SegmentationCallback, this, &hints, sub_opt_2);
         } else {
@@ -335,10 +335,10 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
     double depth_time_diff = (timestamp - synced_data.depth_data.timestamp) * 1000;
     double pose_time_diff = (timestamp - synced_data.pose_data.timestamp) * 1000;
     if (use_depth_ && depth_time_diff > 40) {
-        std::cerr << "color depth time diff: " << depth_time_diff << "ms" << std::endl;
+        std::cerr << "彩色图与深度图时间差：" << depth_time_diff << "ms" << std::endl;
     }
     if (pose_time_diff > 40) {
-        std::cerr << "color pose time diff: " << pose_time_diff << " ms" << std::endl;
+        std::cerr << "彩色图与头部姿态时间差：" << pose_time_diff << " ms" << std::endl;
     }
     cv::Mat color = synced_data.color_data.data;
     cv::Mat depth = synced_data.depth_data.data;
@@ -352,7 +352,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 
     Pose p_head2base = synced_data.pose_data.data;
     Pose p_eye2base = p_head2base * p_headprime2head_ * p_eye2head_;
-    std::cout << "det: p_eye2base: \n"
+    std::cout << "检测用相机到机器人基座位姿 p_eye2base：\n"
               << p_eye2base.toCVMat() << std::endl;
 
     bool ground_plane_available = false;
@@ -372,8 +372,8 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             if (pitch_delta > ground_plane_config_.force_update_head_pitch_delta_deg ||
                 yaw_delta > ground_plane_config_.force_update_head_yaw_delta_deg) {
                 should_fit_plane = true;
-                std::cout << "[GroundPlane] force update by head motion, pitch_delta=" << pitch_delta
-                          << ", yaw_delta=" << yaw_delta << std::endl;
+                std::cout << "[地面平面] 头部运动变化较大，强制更新。pitch_delta=" << pitch_delta
+                          << "，yaw_delta=" << yaw_delta << std::endl;
             }
         }
 
@@ -381,25 +381,25 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             ground_plane_available = FitGroundPlaneFromDepth(ground_plane_cache_, depth_float, color, intr_,
                                                              p_eye2base, timestamp, ground_plane_config_);
             if (ground_plane_available) {
-                std::cout << "[GroundPlane] updated plane_base=("
+                std::cout << "[地面平面] 已更新 plane_base=("
                           << ground_plane_cache_.plane_base[0] << ", "
                           << ground_plane_cache_.plane_base[1] << ", "
                           << ground_plane_cache_.plane_base[2] << ", "
-                          << ground_plane_cache_.plane_base[3] << "), inlier_ratio="
+                          << ground_plane_cache_.plane_base[3] << ")，内点比例="
                           << ground_plane_cache_.inlier_ratio << std::endl;
             } else {
-                std::cout << "[GroundPlane] fit failed: " << ground_plane_cache_.last_failure_reason << std::endl;
+                std::cout << "[地面平面] 拟合失败：" << ground_plane_cache_.last_failure_reason << std::endl;
                 if (ground_plane_cache_.valid) {
                     ground_plane_available = PrecomputePlaneTransform(ground_plane_cache_, p_eye2base);
                     if (ground_plane_available) {
-                        std::cout << "[GroundPlane] reusing previous valid plane after fit failure" << std::endl;
+                        std::cout << "[地面平面] 拟合失败后复用上一帧有效平面。" << std::endl;
                     }
                 }
             }
         } else {
             ground_plane_available = PrecomputePlaneTransform(ground_plane_cache_, p_eye2base);
             if (!ground_plane_available) {
-                std::cout << "[GroundPlane] cache precompute failed: "
+                std::cout << "[地面平面] 缓存预计算失败："
                           << ground_plane_cache_.last_failure_reason << std::endl;
             }
         }
@@ -407,7 +407,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 
     // inference
     auto detections = detector_->Inference(color);
-    std::cout << detections.size() << " objects detected." << std::endl;
+    std::cout << "检测到 " << detections.size() << " 个目标。" << std::endl;
 
     auto get_estimator = [&](const std::string &class_name) {
         if (class_name == "Ball") {
@@ -451,7 +451,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             }
 
             if (ball_detections.size() > 1) {
-                std::cout << "Multiple ball detections found, keeping the one with highest confidence." << std::endl;
+                std::cout << "检测到多个球，仅保留置信度最高的一个。" << std::endl;
                 auto max_ball_detection = *std::max_element(ball_detections.begin(), ball_detections.end(),
                                                             [](const booster_vision::DetectionRes &a, const booster_vision::DetectionRes &b) {
                                                                 return a.confidence < b.confidence;

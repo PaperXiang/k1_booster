@@ -38,7 +38,7 @@ void serialize_det_engine(std::string& wts_name, std::string& engine_name, int& 
     assert(serialized_engine);
     std::ofstream p(engine_name, std::ios::binary);
     if (!p) {
-        std::cout << "could not open plan output file" << std::endl;
+        std::cout << "无法打开 plan 输出文件" << std::endl;
         assert(false);
     }
     p.write(reinterpret_cast<const char*>(serialized_engine->data()), serialized_engine->size());
@@ -50,10 +50,10 @@ void serialize_det_engine(std::string& wts_name, std::string& engine_name, int& 
 
 void deserialize_det_engine(std::string& engine_name, IRuntime** runtime, ICudaEngine** engine,
                         IExecutionContext** context) {
-    std::cout << "loading det engine: " << engine_name << std::endl;
+    std::cout << "正在加载检测引擎：" << engine_name << std::endl;
     std::ifstream file(engine_name, std::ios::binary);
     if (!file.good()) {
-        std::cerr << "read " << engine_name << " error!" << std::endl;
+        std::cerr << "读取检测引擎失败：" << engine_name << std::endl;
         assert(false);
     }
     size_t size = 0;
@@ -91,7 +91,7 @@ void prepare_det_buffer(ICudaEngine* engine, float** input_buffer_device, float*
         *output_buffer_host = new float[kBatchSize * kOutputSize];
     } else if (cuda_post_process == "g") {
         if (kBatchSize > 1) {
-            std::cerr << "Do not yet support GPU post processing for multiple batches" << std::endl;
+            std::cerr << "暂不支持多 batch 的 GPU 后处理" << std::endl;
             exit(0);
         }
         // Allocate memory for decode_ptr_host and copy to device
@@ -123,7 +123,7 @@ void infer_det(IExecutionContext& context, cudaStream_t& stream, void** buffers,
 
 void YoloV8DetectorTRT::Init(std::string model_path) {
   if (model_path.find(".engine") == std::string::npos) {
-      throw std::runtime_error("incorrect model name: " + model_path);
+      throw std::runtime_error("模型名称不正确: " + model_path);
   }
 
   deserialize_det_engine(model_path, &runtime, &engine, &context);
@@ -135,7 +135,7 @@ void YoloV8DetectorTRT::Init(std::string model_path) {
 
  prepare_det_buffer(engine, &device_buffers[0], &device_buffers[1], &output_buffer_host, &decode_ptr_host,
                 &decode_ptr_device, cuda_post_process);
-  std::cout << "det model initialization, done!"  << std::endl;
+  std::cout << "检测模型初始化完成。"  << std::endl;
 }
 
 std::vector<booster_vision::DetectionRes> YoloV8DetectorTRT::Inference(const cv::Mat& img) {
