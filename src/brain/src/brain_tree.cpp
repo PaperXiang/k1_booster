@@ -274,117 +274,54 @@ NodeStatus CamTrackBall::tick()
 
 CamFindBall::CamFindBall(const string &name, const NodeConfig &config, Brain *_brain) : SyncActionNode(name, config), brain(_brain)
 {
-    _scanStartTime = brain->get_clock()->now();
-    _lastCmdTime = _scanStartTime;
-    _firstAcquireTime = rclcpp::Time(0, 0, RCL_ROS_TIME);
-    _lastYawCmd = 0.0;
-    _lastPitchCmd = 0.55;
-    _lastYawRate = 0.0;
-    _lastPitchRate = 0.0;
-    _acquireCount = 0;
-    _scanActive = false;
+    double lowPitch = 1.0;
+    double highPitch = 0.2;
+    double leftYaw = 1.1;
+    double rightYaw = -1.1;
+
+    _cmdSequence[0][0] = lowPitch;
+    _cmdSequence[0][1] = leftYaw;
+    _cmdSequence[1][0] = lowPitch;
+    _cmdSequence[1][1] = 0;
+    _cmdSequence[2][0] = lowPitch;
+    _cmdSequence[2][1] = rightYaw;
+    _cmdSequence[3][0] = highPitch;
+    _cmdSequence[3][1] = rightYaw;
+    _cmdSequence[4][0] = highPitch;
+    _cmdSequence[4][1] = 0;
+    _cmdSequence[5][0] = highPitch;
+    _cmdSequence[5][1] = leftYaw;
+
+    _cmdIndex = 0;
+    _cmdIntervalMSec = 800;
+    _cmdRestartIntervalMSec = 50000;
+    _timeLastCmd = brain->get_clock()->now();
 }
 
 NodeStatus CamFindBall::tick()
 {
-    const double bodyVtheta = 1.5; // 4.2s per body revolution.
-    const double headPeriod = 2.1; // About two full head scan cycles per body revolution.
-    const double omega = 2.0 * M_PI / headPeriod;
-    const double yawCenter = 0.0;
-    const double yawAmp = 1.05;
-    const double pitchCenter = 0.22;
-    const double pitchAmp = 0.30;
-    const double maxYawRate = 3.2;
-    const double maxPitchRate = 2.2;
-    const double baseYawAcc = 12.0;
-    const double basePitchAcc = 14.0;
-    const double minAccScale = 0.70;
-    const double cmdIntervalMSec = 33.0;
-    const double acquireWindowMSec = 250.0;
-    const int acquireCountThreshold = 2;
-
-    auto now = brain->get_clock()->now();
-
-    if (!_scanActive || brain->msecsSince(_lastCmdTime) > 1000.0)
-    {
-        _scanStartTime = now;
-        _lastCmdTime = now;
-        _firstAcquireTime = rclcpp::Time(0, 0, RCL_ROS_TIME);
-        _lastYawCmd = brain->data->headYaw;
-        _lastPitchCmd = brain->data->headPitch;
-        _lastYawRate = 0.0;
-        _lastPitchRate = 0.0;
-        _acquireCount = 0;
-        _scanActive = true;
-    }
-
     if (brain->data->ballDetected)
     {
-        if (_acquireCount == 0)
-        {
-            _firstAcquireTime = now;
-        }
-
-        _acquireCount++;
-        if (_acquireCount >= acquireCountThreshold || brain->msecsSince(_firstAcquireTime) >= acquireWindowMSec)
-        {
-            brain->client->setVelocity(0, 0, 0);
-            _scanActive = false;
-            _acquireCount = 0;
-        } else {
-            double reacquireVx = brain->data->ball.range > 0.8 ? cap(brain->data->ball.posToRobot.x * 0.35, 0.35, 0.0) : 0.0;
-            double reacquireVtheta = cap(brain->data->ball.yawToRobot * 1.5, 0.9, -0.9);
-            brain->client->setVelocity(reacquireVx, 0, reacquireVtheta, false, false, false);
-        }
-
         return NodeStatus::SUCCESS;
-    }
+    } // 目前全部节点都是返回 Success 的, 返回 failure 会影响后面节点的执行.
 
-    _acquireCount = 0;
-    _firstAcquireTime = rclcpp::Time(0, 0, RCL_ROS_TIME);
-
-    if (brain->msecsSince(_lastCmdTime) < cmdIntervalMSec)
+    auto curTime = brain->get_clock()->now();
+    auto timeSinceLastCmd = (curTime - _timeLastCmd).nanoseconds() / 1e6;
+    if (timeSinceLastCmd < _cmdIntervalMSec)
     {
         return NodeStatus::SUCCESS;
+    } // 没到下条指令的执行时间
+    else if (timeSinceLastCmd > _cmdRestartIntervalMSec)
+    {                   // 超过一定时间, 认为这是重新从头执行
+        _cmdIndex = 0; // 注意这里不 return
+    }
+    else
+    { // 达到时间, 执行下一个指令, 同样不 return
+        _cmdIndex = (_cmdIndex + 1) % (sizeof(_cmdSequence) / sizeof(_cmdSequence[0]));
     }
 
-    double dt = brain->msecsSince(_lastCmdTime) / 1000.0;
-    dt = cap(dt, 0.20, cmdIntervalMSec / 1000.0);
-
-    double t = (now - _scanStartTime).nanoseconds() / 1e9;
-    double yawRaw = yawCenter + yawAmp * sin(omega * t);
-    double pitchRaw = pitchCenter + pitchAmp * sin(2.0 * omega * t);
-
-    double yawRateTarget = cap((yawRaw - _lastYawCmd) / dt, maxYawRate, -maxYawRate);
-    double pitchRateTarget = cap((pitchRaw - _lastPitchCmd) / dt, maxPitchRate, -maxPitchRate);
-
-    double yawEdgeRatio = cap(fabs(yawRaw - yawCenter) / yawAmp, 1.0, 0.0);
-    double pitchEdgeRatio = cap(fabs(pitchRaw - pitchCenter) / pitchAmp, 1.0, 0.0);
-    double yawAcc = baseYawAcc * (minAccScale + (1.0 - minAccScale) * yawEdgeRatio);
-    double pitchAcc = basePitchAcc * (minAccScale + (1.0 - minAccScale) * pitchEdgeRatio);
-
-    double yawRate = cap(yawRateTarget, _lastYawRate + yawAcc * dt, _lastYawRate - yawAcc * dt);
-    double pitchRate = cap(pitchRateTarget, _lastPitchRate + pitchAcc * dt, _lastPitchRate - pitchAcc * dt);
-
-    double yawTarget = _lastYawCmd + yawRate * dt;
-    double pitchTarget = _lastPitchCmd + pitchRate * dt;
-
-    brain->client->moveHead(pitchTarget, yawTarget);
-    brain->client->setVelocity(0, 0, bodyVtheta);
-
-    brain->log->setTimeNow();
-    brain->log->log("debug/CamFindBall",
-        rerun::TextLog(format(
-            "phase: lissajous_v2, t: %.2f, pitch: %.2f/raw %.2f rate %.2f acc %.2f, yaw: %.2f/raw %.2f rate %.2f acc %.2f, vtheta: %.2f",
-            t, pitchTarget, pitchRaw, pitchRate, pitchAcc, yawTarget, yawRaw, yawRate, yawAcc, bodyVtheta
-        ))
-    );
-
-    _lastPitchCmd = pitchTarget;
-    _lastYawCmd = yawTarget;
-    _lastPitchRate = pitchRate;
-    _lastYawRate = yawRate;
-    _lastCmdTime = now;
+    brain->client->moveHead(_cmdSequence[_cmdIndex][0], _cmdSequence[_cmdIndex][1]);
+    _timeLastCmd = brain->get_clock()->now();
 
     return NodeStatus::SUCCESS;
 }
