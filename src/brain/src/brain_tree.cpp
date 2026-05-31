@@ -1690,7 +1690,11 @@ NodeStatus RobotFindBall::onStart()
     log("RobotFindBall onStart");
 
     _stableDetectedCount = brain->data->ballDetected ? 1 : 0;
-    _turnDir = brain->data->ball.yawToRobot > 0 ? 1.0 : -1.0;
+    if (brain->tree->getEntry<bool>("tm_ball_pos_reliable") && !brain->tree->getEntry<bool>("ball_location_known")) {
+        _turnDir = brain->data->tmBall.yawToRobot > 0 ? 1.0 : -1.0;
+    } else {
+        _turnDir = brain->data->ball.yawToRobot > 0 ? 1.0 : -1.0;
+    }
 
     return NodeStatus::RUNNING;
 }
@@ -1708,10 +1712,7 @@ NodeStatus RobotFindBall::onRunning()
     getInput("vyaw_limit", vyawLimit);
     getInput("transition_vx", transitionVx);
 
-    if (
-        brain->tree->getEntry<bool>("ball_location_known")
-        || brain->tree->getEntry<bool>("tm_ball_pos_reliable")
-    ) {
+    if (brain->tree->getEntry<bool>("ball_location_known")) {
         return NodeStatus::SUCCESS;
     }
 
@@ -1726,6 +1727,14 @@ NodeStatus RobotFindBall::onRunning()
     }
 
     _stableDetectedCount = 0;
+
+    if (brain->tree->getEntry<bool>("tm_ball_pos_reliable")) {
+        double yawErr = brain->data->tmBall.yawToRobot;
+        double vtheta = cap(yawErr * 2.0, vyawLimit, -vyawLimit);
+        brain->client->moveHead(brain->data->tmBall.pitchToRobot, brain->data->tmBall.yawToRobot);
+        brain->client->setVelocity(0, 0, vtheta);
+        return NodeStatus::RUNNING;
+    }
 
     brain->client->setVelocity(0, 0, vyawLimit * _turnDir);
     return NodeStatus::RUNNING;

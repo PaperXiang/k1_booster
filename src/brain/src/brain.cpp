@@ -472,8 +472,13 @@ void Brain::handleCooperation() {
     log_(format("Find ball info among %d alive TMs", aliveTmIdxs.size()));
     for (int i = 0; i < aliveTmIdxs.size(); i++) {
         auto status = data->tmStatus[aliveTmIdxs[i]];
-        log_(format("TM %d, ballDetected: %d, ballRange: %.1f", i + 1, status.ballDetected, status.ballRange));
-        if (status.ballDetected && status.ballRange < minRange) {
+        log_(format("TM %d, ballDetected: %d, ballKnown: %d, ballConf: %.1f, ballRange: %.1f", i + 1, status.ballDetected, status.ballLocationKnown, status.ballConfidence, status.ballRange));
+        if (
+            status.ballDetected
+            && status.ballLocationKnown
+            && status.ballConfidence >= config->ballConfidenceThreshold
+            && status.ballRange < minRange
+        ) {
             log_(format("tm ball range(%.1f) < minRange(%.1f)", status.ballRange, minRange));
             double dist = norm(status.ballPosToField.x - data->robotPoseToField.x, status.ballPosToField.y - data->robotPoseToField.y);
             if (dist > RANGE_THRESHOLD) {

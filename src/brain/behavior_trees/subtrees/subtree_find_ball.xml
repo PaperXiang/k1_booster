@@ -3,7 +3,7 @@
 <root BTCPP_format="4" >
    <BehaviorTree ID="FindBall">
       <ReactiveFallback name="root">
-         <ScriptCondition code="ball_location_known || tm_ball_pos_reliable" />
+         <ScriptCondition code="ball_location_known" />
          <ReactiveSequence>
             <GoBackInField />
             <Parallel success_count="1" failure_count="2">
