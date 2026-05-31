@@ -42,8 +42,9 @@
                 <ReactiveSequence _while="!gc_is_under_penalty" name="没有罚时, 正常比赛">
                     <ReactiveSequence _while="gc_game_sub_state_type=='TIMEOUT'" name="比赛暂停. 暂停时, game state 必为 INITIAL">
                         <SetVelocity />
-                        <!-- <PrintMsg msg="Timeout. Calibrating..." /> -->
+                        <CamScanField _while="!odom_calibrated"/>
                         <SubTree ID="CamFindAndTrackBall" _autoremap="true" _while="odom_calibrated" />
+                        <SelfLocateEnterField />
                     </ReactiveSequence>
 
                     <ReactiveSequence _while="gc_game_sub_state_type=='NONE'" name="正常比赛">

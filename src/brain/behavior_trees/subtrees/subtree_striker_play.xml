@@ -28,7 +28,7 @@
                   <CalcKickDir />
                   <Sequence>
                      <ReactiveSequence>
-                        <StrikerDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
+                        <StrikerDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.5" />
                         <!-- <RobotFindBall _while="decision == 'find'" vyaw_limit="1.0" /> -->
                         <SubTree ID="FindBall" _while="decision=='find'" _autoremap="true" />
                      </ReactiveSequence>
