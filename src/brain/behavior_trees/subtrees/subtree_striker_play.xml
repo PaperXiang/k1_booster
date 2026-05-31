@@ -24,11 +24,12 @@
                <!-- <SubTree ID="CamFindAndTrackBall" _autoremap="true" /> -->
                <ReactiveSequence >
                   <!-- <CamTrackBall /> -->
-                  <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
+                  <SubTree ID="CamFindAndTrackBall" _autoremap="true" _while="decision!='find'" />
                   <CalcKickDir />
                   <Sequence>
                      <ReactiveSequence>
                         <StrikerDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
+                        <!-- <RobotFindBall _while="decision == 'find'" vyaw_limit="1.0" /> -->
                         <SubTree ID="FindBall" _while="decision=='find'" _autoremap="true" />
                      </ReactiveSequence>
                         <Assist _while="decision == 'assist'" vx_limit = "0.5" vy_limit="0.5" />

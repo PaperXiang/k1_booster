@@ -131,15 +131,11 @@ public:
     CamFindBall(const string &name, const NodeConfig &config, Brain *_brain);
     NodeStatus tick() override;
 private:
-    rclcpp::Time _scanStartTime;
-    rclcpp::Time _lastCmdTime;
-    rclcpp::Time _firstAcquireTime;
-    double _lastYawCmd;
-    double _lastPitchCmd;
-    double _lastYawRate;
-    double _lastPitchRate;
-    int _acquireCount;
-    bool _scanActive;
+    double _cmdSequence[6][2];
+    rclcpp::Time _timeLastCmd;
+    int _cmdIndex;
+    long _cmdIntervalMSec;
+    long _cmdRestartIntervalMSec;
     Brain *brain;
 };
 
