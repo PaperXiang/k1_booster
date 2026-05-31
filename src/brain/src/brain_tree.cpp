@@ -1,5 +1,6 @@
 ﻿#include <cmath>
 #include <cstdlib>
+#include <algorithm>
 #include <memory> 
 #include "brain_tree.h"
 #include "brain.h"
@@ -42,6 +43,7 @@ void BrainTree::init()
     REGISTER_BUILDER(CamTrackBall)
     REGISTER_BUILDER(CamFindBall)
     REGISTER_BUILDER(CamFastScan)
+    REGISTER_BUILDER(CamLissajousScan)
     REGISTER_BUILDER(CamScanField)
     
     // 如果cpp里没实现这些类，注释掉，否则链接会报错。
@@ -1687,11 +1689,7 @@ NodeStatus RobotFindBall::onStart()
     };
     log("RobotFindBall onStart");
 
-    if (brain->data->ballDetected)
-    {
-        brain->client->setVelocity(0, 0, 0);
-        return NodeStatus::SUCCESS;
-    }
+    _stableDetectedCount = brain->data->ballDetected ? 1 : 0;
     _turnDir = brain->data->ball.yawToRobot > 0 ? 1.0 : -1.0;
 
     return NodeStatus::RUNNING;
@@ -1705,24 +1703,30 @@ NodeStatus RobotFindBall::onRunning()
     };
     log("RobotFindBall onRunning");
 
-    if (brain->data->ballDetected)
-    {
-        brain->client->setVelocity(0, 0, 0);
+    double vyawLimit;
+    double transitionVx;
+    getInput("vyaw_limit", vyawLimit);
+    getInput("transition_vx", transitionVx);
+
+    if (
+        brain->tree->getEntry<bool>("ball_location_known")
+        || brain->tree->getEntry<bool>("tm_ball_pos_reliable")
+    ) {
         return NodeStatus::SUCCESS;
     }
 
-    double vyawLimit;
-    getInput("vyaw_limit", vyawLimit);
-
-    double vx = 0;
-    double vy = 0;
-    double vtheta = 0;
-    if (brain->data->ball.range < 0.3)
-    { // 记忆中的球位置太近了, 后退一点
-      // vx = cap(-brain->data->ball.posToRobot.x, 0.2, -0.2);
-      // vy = cap(-brain->data->ball.posToRobot.y, 0.2, -0.2);
+    if (brain->data->ballDetected)
+    {
+        double yawErr = brain->data->ball.yawToRobot;
+        double vtheta = cap(yawErr * 1.2, vyawLimit, -vyawLimit);
+        _stableDetectedCount++;
+        double vx = _stableDetectedCount >= 3 ? transitionVx : transitionVx * 0.5;
+        brain->client->setVelocity(vx, 0, vtheta);
+        return NodeStatus::RUNNING;
     }
-    // vtheta = _turnDir > 0 ? vyawLimit : -vyawLimit;
+
+    _stableDetectedCount = 0;
+
     brain->client->setVelocity(0, 0, vyawLimit * _turnDir);
     return NodeStatus::RUNNING;
 }
@@ -1735,6 +1739,8 @@ void RobotFindBall::onHalted()
     };
     log("RobotFindBall onHalted");
     _turnDir = 1.0;
+    _stableDetectedCount = 0;
+    brain->client->setVelocity(0, 0, 0);
 }
 
 NodeStatus CamFastScan::onStart()
@@ -1757,6 +1763,57 @@ NodeStatus CamFastScan::onRunning()
     _cmdIndex++;
     _timeLastCmd = brain->get_clock()->now();
     brain->client->moveHead(_cmdSequence[_cmdIndex][0], _cmdSequence[_cmdIndex][1]);
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus CamLissajousScan::onStart()
+{
+    _startTime = brain->get_clock()->now();
+
+    double yawAmplitude;
+    getInput("yaw_amplitude", yawAmplitude);
+    if (yawAmplitude <= 0.01) {
+        _phaseOffset = 0.0;
+        return NodeStatus::RUNNING;
+    }
+
+    double normalizedYaw = std::max(-1.0, std::min(1.0, brain->data->headYaw / yawAmplitude));
+    _phaseOffset = std::asin(normalizedYaw);
+
+    if (std::fabs(brain->data->headYaw) > yawAmplitude * 0.7) {
+        _phaseOffset = M_PI - _phaseOffset;
+    }
+
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus CamLissajousScan::onRunning()
+{
+    double pitchCenter, pitchAmplitude, yawAmplitude, cycleMsec;
+    getInput("pitch_center", pitchCenter);
+    getInput("pitch_amplitude", pitchAmplitude);
+    getInput("yaw_amplitude", yawAmplitude);
+    getInput("cycle_msec", cycleMsec);
+
+    if (cycleMsec <= 1.0) cycleMsec = 2800.0;
+
+    if (brain->data->ballDetected) {
+        const double xCenter = brain->config->camPixX / 2.0;
+        const double yCenter = brain->config->camPixY / 2.0;
+        double ballX = mean(brain->data->ball.boundingBox.xmax, brain->data->ball.boundingBox.xmin);
+        double ballY = mean(brain->data->ball.boundingBox.ymax, brain->data->ball.boundingBox.ymin);
+        double deltaYaw = (ballX - xCenter) / brain->config->camPixX * brain->config->camAngleX / 2.0;
+        double deltaPitch = (ballY - yCenter) / brain->config->camPixY * brain->config->camAngleY / 2.0;
+
+        brain->client->moveHead(brain->data->headPitch + deltaPitch, brain->data->headYaw - deltaYaw);
+        return NodeStatus::RUNNING;
+    }
+
+    double t = brain->msecsSince(_startTime) / cycleMsec * 2.0 * M_PI + _phaseOffset;
+    double yaw = yawAmplitude * std::sin(t);
+    double pitch = pitchCenter + pitchAmplitude * std::cos(t);
+
+    brain->client->moveHead(pitch, yaw);
     return NodeStatus::RUNNING;
 }
 

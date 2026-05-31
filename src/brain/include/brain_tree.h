@@ -175,16 +175,44 @@ private:
     Brain *brain;
 };
 
+class CamLissajousScan : public StatefulActionNode
+{
+public:
+    CamLissajousScan(const string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
+    static PortsList providedPorts() {
+        return {
+            InputPort<double>("pitch_center", -0.253, "椭圆扫描中心俯仰角"),
+            InputPort<double>("pitch_amplitude", 0.567, "椭圆扫描俯仰角幅度"),
+            InputPort<double>("yaw_amplitude", 1.012, "椭圆扫描左右幅度"),
+            InputPort<double>("cycle_msec", 1800, "完整椭圆扫描周期"),
+            InputPort<double>("frequency_ratio", 1.0, "兼容旧参数，椭圆扫描固定为 1:1"),
+        };
+    }
+    NodeStatus onStart() override;
+    NodeStatus onRunning() override;
+    void onHalted() override {};
+private:
+    rclcpp::Time _startTime;
+    double _phaseOffset = 0.0;
+    Brain *brain;
+};
+
 class RobotFindBall : public StatefulActionNode
 {
 public:
     RobotFindBall(const string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
-    static PortsList providedPorts() { return { InputPort<double>("vyaw_limit", 1.0, "") }; }
+    static PortsList providedPorts() {
+        return {
+            InputPort<double>("vyaw_limit", 1.2, "找球时身体旋转速度上限"),
+            InputPort<double>("transition_vx", 0.25, "看到球但位置尚未稳定时的前进衔接速度"),
+        };
+    }
     NodeStatus onStart() override;
     NodeStatus onRunning() override;
     void onHalted() override;
 private:
     double _turnDir;
+    int _stableDetectedCount = 0;
     Brain *brain;
 };
 
