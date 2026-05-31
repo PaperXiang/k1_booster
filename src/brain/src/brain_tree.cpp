@@ -1798,6 +1798,14 @@ NodeStatus CamLissajousScan::onStart()
 
 NodeStatus CamLissajousScan::onRunning()
 {
+    if (
+        !brain->data->ballDetected
+        && !brain->tree->getEntry<bool>("ball_location_known")
+        && brain->tree->getEntry<bool>("tm_ball_pos_reliable")
+    ) {
+        return NodeStatus::RUNNING;
+    }
+
     double pitchCenter, pitchAmplitude, yawAmplitude, cycleMsec;
     getInput("pitch_center", pitchCenter);
     getInput("pitch_amplitude", pitchAmplitude);
