@@ -70,12 +70,12 @@ ground_plane:
   force_update_head_yaw_delta_deg: 5
 ball_motion_prediction:
   enable: true
-  predict_time: 0.25
+  predict_time: 0.12
   min_dt: 0.02
   max_dt: 0.20
   max_history_gap: 0.50
   max_speed: 4.0
-  max_acceleration: 8.0
+  max_acceleration: 0.0
   allow_projection: false
 ball_pose_estimator:
   use_depth: false

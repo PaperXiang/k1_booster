@@ -75,6 +75,7 @@ struct GameObject
     Point2D precisePixelPoint;   // 物体的精确像素点位置, 仅地面标志点有这一数据
     double confidence;           // 识别的置信度, 对 obstacle 来说, 是大于 0 的数字, 代表障碍网格中高于阈值的点数
     Point posToRobot;            // 物体在机器人本体坐标系的的位置, 位置为 2D, 忽略 z 值.
+    int positionConfidence = 0;   // vision 位置来源: 1=投影兜底, 2=深度/地面平面实测, 3=预测/保留.
 
     // --- 在 processDetectedObject 函数中计算获得 ---
     Point posToField;                                 // 物体在物体场坐标系的的位置, 位置为 2D, 忽略 z 值. x 向前, y 向左.

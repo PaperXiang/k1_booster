@@ -193,7 +193,7 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         ball_motion_config.max_dt = std::max(ball_motion_config.min_dt, as_or<double>(motion_node["max_dt"], 0.20));
         ball_motion_config.max_history_gap = std::max(ball_motion_config.max_dt, as_or<double>(motion_node["max_history_gap"], 0.50));
         ball_motion_config.max_speed = std::max(0.0, as_or<double>(motion_node["max_speed"], 4.0));
-        ball_motion_config.max_acceleration = std::max(0.0, as_or<double>(motion_node["max_acceleration"], 8.0));
+        ball_motion_config.max_acceleration = std::max(0.0, as_or<double>(motion_node["max_acceleration"], 0.0));
         ball_motion_config.allow_projection = as_or<bool>(motion_node["allow_projection"], false);
     }
     ball_motion_predictor_.setConfig(ball_motion_config);
@@ -529,7 +529,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 
         auto measured_translation = pose_obj_by_depth.getTranslationVec();
         cv::Point3f measured_position(measured_translation[0], measured_translation[1], measured_translation[2]);
-        cv::Point3f optimized_position = measured_position;
+        cv::Point3f predicted_position = measured_position;
         ball_motion_predictor::Result ball_motion_result;
         bool dynamic_measurement = position_source == "ground_plane" || position_source == "object_depth";
         const auto &ball_motion_config = ball_motion_predictor_.config();
@@ -541,18 +541,17 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
                 ball_motion_predictor::Point3D{measured_position.x, measured_position.y, measured_position.z},
                 timestamp,
                 dynamic_measurement || ball_motion_config.allow_projection);
-            optimized_position = cv::Point3f(
+            predicted_position = cv::Point3f(
                 static_cast<float>(ball_motion_result.predicted_position.x),
                 static_cast<float>(ball_motion_result.predicted_position.y),
                 static_cast<float>(ball_motion_result.predicted_position.z));
         }
 
         detection_obj.position_projection = pose_obj_by_color.getTranslationVec();
-        detection_obj.position = {optimized_position.x, optimized_position.y, optimized_position.z};
+        // Keep the published position as the measured vision position. Prediction is logged only so
+        // brain does not chase an extrapolated ball as if it were a direct observation.
+        detection_obj.position = {measured_position.x, measured_position.y, measured_position.z};
         detection_obj.position_confidence = dynamic_measurement ? 2 : 1;
-        if (ball_motion_result.prediction_applied) {
-            detection_obj.position_confidence = 3;
-        }
 
         if (ground_plane_config_.enable) {
             auto projection = pose_obj_by_color.getTranslationVec();
@@ -572,7 +571,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         if (detection.class_name == "Ball" && detection_index == ball_motion_target_index) {
             std::cout << "[BallMotion] predicted=" << ball_motion_result.prediction_applied
                       << ", measured=(" << measured_position.x << ", " << measured_position.y << ")"
-                      << ", optimized=(" << optimized_position.x << ", " << optimized_position.y << ")"
+                      << ", predicted_position=(" << predicted_position.x << ", " << predicted_position.y << ")"
                       << ", velocity=(" << ball_motion_result.velocity.x << ", " << ball_motion_result.velocity.y << ")"
                       << ", acceleration=(" << ball_motion_result.acceleration.x << ", " << ball_motion_result.acceleration.y << ")"
                       << ", position_confidence=" << detection_obj.position_confidence << std::endl;
@@ -704,6 +703,7 @@ void VisionNode::ColorCallback(const sensor_msgs::msg::Image::ConstSharedPtr &ms
 
     vision_interface::msg::Detections detection_msg;
     detection_msg.header = msg->header;
+    detection_msg.header.frame_id = "base_link";
     double timestamp = msg->header.stamp.sec + static_cast<double>(msg->header.stamp.nanosec) * 1e-9;
 
     // get synced data
@@ -787,6 +787,7 @@ void VisionNode::SegmentationCallback(const sensor_msgs::msg::Image::ConstShared
 
     vision_interface::msg::LineSegments field_line_segs_msg;
     field_line_segs_msg.header = msg->header;
+    field_line_segs_msg.header.frame_id = "base_link";
     double timestamp = msg->header.stamp.sec + static_cast<double>(msg->header.stamp.nanosec) * 1e-9;
 
     // get synced data

@@ -86,12 +86,19 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
         return result;
     }
 
-    result.velocity = Point2D{
+    Point2D raw_velocity{
         (measured_position.x - last.position.x) / dt_current,
         (measured_position.y - last.position.y) / dt_current};
-    result.velocity = limitVectorNorm(result.velocity, config_.max_speed);
 
-    if (history_.size() >= 2) {
+    if (config_.max_speed > 0.0 && std::hypot(raw_velocity.x, raw_velocity.y) > config_.max_speed) {
+        result.history_reset = true;
+        reset();
+        return result;
+    }
+
+    result.velocity = limitVectorNorm(raw_velocity, config_.max_speed);
+
+    if (config_.max_acceleration > 0.0 && history_.size() >= 2) {
         const auto &prev = history_.front();
         double dt_prev = last.timestamp - prev.timestamp;
         if (dt_prev >= config_.min_dt && dt_prev <= config_.max_dt) {

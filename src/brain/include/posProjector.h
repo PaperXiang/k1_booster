@@ -1,6 +1,8 @@
 /**
  * @file posPredictor.h
- * @brief 定义一个 PosPredictor Class 用于预测未来的位置, 如球的位置
+ * @brief Deprecated legacy predictor. 当前 3v3 demo 主链路不使用该类；
+ *        vision 侧实际使用 src/ball_motion_predictor 中的 BallMotionPredictor。
+ *        若后续重新接入，需要先补齐时间回退、离群点和滤波状态初始化测试。
  */
 #pragma once
 #include <Eigen/Dense>
@@ -540,4 +542,3 @@ private:
         }
     }
 };
-

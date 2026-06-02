@@ -1472,6 +1472,13 @@ void Brain::fieldLineCallback(const vision_interface::msg::LineSegments &msg)
     auto now = get_clock()->now();
     data->timeLastLineDet = timePoint; // 用于在调试中输出延迟信息
 
+    if (msg.coordinates.size() % 4 != 0 || msg.coordinates_uv.size() % 4 != 0 ||
+        msg.coordinates.size() != msg.coordinates_uv.size()) {
+        prtWarn(format("Ignore malformed LineSegments: coordinates=%zu coordinates_uv=%zu",
+                       msg.coordinates.size(), msg.coordinates_uv.size()));
+        return;
+    }
+
     vector<FieldLine> lines = {};
     FieldLine line;
 
@@ -2038,6 +2045,7 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
         gObj.boundingBox.ymax = obj.ymax;
         gObj.boundingBox.ymin = obj.ymin;
         gObj.confidence = obj.confidence;
+        gObj.positionConfidence = obj.position_confidence;
 
         // Prefer dynamic ground-plane/depth position from vision, then fall back to fixed z=0 projection.
         auto isReasonableVisionPosition = [&](double x, double y) {

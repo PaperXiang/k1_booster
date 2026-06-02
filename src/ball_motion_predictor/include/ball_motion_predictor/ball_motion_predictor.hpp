@@ -23,7 +23,7 @@ struct Config {
     double max_dt = 0.20;
     double max_history_gap = 0.50;
     double max_speed = 4.0;
-    double max_acceleration = 8.0;
+    double max_acceleration = 0.0;
     bool allow_projection = false;
 };
 
