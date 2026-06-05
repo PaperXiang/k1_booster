@@ -42,14 +42,18 @@ ament_export_dependencies(rosidl_default_runtime)
 file(GLOB SOURCE_FILES src/*.cpp)
 add_executable(brain_node ${SOURCE_FILES})
 
+add_executable(fake_kick_ball_publisher src/tools/fake_kick_ball_publisher.cpp)
+
 # otherwise connot find msg in same pkg 
 # Find the typesupport target
 rosidl_get_typesupport_target(typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 # Link the typesupport target to your project
 target_link_libraries(brain_node ${typesupport_target})
+target_link_libraries(fake_kick_ball_publisher ${typesupport_target})
 
 
 set_property(TARGET brain_node PROPERTY CXX_STANDARD 17)
+set_property(TARGET fake_kick_ball_publisher PROPERTY CXX_STANDARD 17)
 
 target_link_libraries(brain_node rerun_sdk ${OpenCV_LIBS} yaml-cpp) 
 target_link_libraries(brain_node ${backward_ros_LIBRARIES})
@@ -63,13 +67,19 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-narrowing -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers -Wno-unused-variable")
 
 ament_target_dependencies(brain_node rclcpp rosidl_typesupport_cpp std_msgs sensor_msgs behaviortree_cpp booster_interface vision_interface game_controller_interface booster_msgs tf2 tf2_ros tf2_geometry_msgs)
+ament_target_dependencies(fake_kick_ball_publisher rclcpp rosidl_typesupport_cpp std_msgs)
 
 target_include_directories(brain_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_include_directories(fake_kick_ball_publisher PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 target_compile_features(brain_node PUBLIC c_std_99 cxx_std_17) # Require C99 and C++17
+target_compile_features(fake_kick_ball_publisher PUBLIC c_std_99 cxx_std_17)
 install(TARGETS
   brain_node
+  fake_kick_ball_publisher
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch
