@@ -2963,6 +2963,14 @@ NodeStatus SelfLocateBorder::tick()
     if (brain->client->isStandingStill(2000)) maxDist *= 1.5; // 静态下, 允许更大的距离
     double maxDrift = getInput<double>("max_drift").value();
     bool validate = getInput<bool>("validate").value();
+    const bool standingStill = brain->client->isStandingStill(1000);
+    const double minConfidence = 0.8;
+    const double minLineLength = 0.5;
+    const double maxLineAgeMsec = 500.0;
+    const double angleTolerance = 0.25;
+    const double consistencyTolerance = 0.5;
+    const double maxCorrectionPerTick = standingStill ? 0.6 : 0.4;
+    const double softFusionAlpha = standingStill ? 0.4 : 0.25;
     
     auto log = brain->log;
     log->setTimeNow();
@@ -2982,112 +2990,153 @@ NodeStatus SelfLocateBorder::tick()
     //     return NodeStatus::SUCCESS;
     // }
     
-    // find best touchline and best goalline
-    bool touchLineFound = false;
-    FieldLine touchLine;
-    double bestConfidenceTouchline = 0.0;
-    bool goalLineFound = false;
-    FieldLine goalLine;
-    double bestConfidenceGoalline = 0.0;
-    bool middleLineFound = false;
-    FieldLine middleLine;
-    double bestConfidenceMiddleLine = 0.0;
+    struct CorrectionCandidate {
+        double value;
+        double confidence;
+        string label;
+    };
+    vector<CorrectionCandidate> dxCandidates;
+    vector<CorrectionCandidate> dyCandidates;
 
+    auto addCandidate = [](vector<CorrectionCandidate> &candidates, double value, double confidence, const string &label) {
+        candidates.push_back({value, confidence, label});
+    };
+
+    auto weightedAverage = [](const vector<CorrectionCandidate> &candidates) {
+        double weightedSum = 0.0;
+        double weightSum = 0.0;
+        for (const auto &candidate : candidates) {
+            weightedSum += candidate.value * candidate.confidence;
+            weightSum += candidate.confidence;
+        }
+        if (weightSum < 1e-6) return 0.0;
+        return weightedSum / weightSum;
+    };
+
+    auto maxSpread = [](const vector<CorrectionCandidate> &candidates) {
+        if (candidates.empty()) return 0.0;
+        double minValue = candidates[0].value;
+        double maxValue = candidates[0].value;
+        for (const auto &candidate : candidates) {
+            minValue = std::min(minValue, candidate.value);
+            maxValue = std::max(maxValue, candidate.value);
+        }
+        return maxValue - minValue;
+    };
+
+    auto clamp = [](double value, double limit) {
+        return std::max(-limit, std::min(limit, value));
+    };
+
+    auto labelsOf = [](const vector<CorrectionCandidate> &candidates) {
+        string labels;
+        for (const auto &candidate : candidates) {
+            if (!labels.empty()) labels += " ";
+            labels += candidate.label;
+        }
+        return labels;
+    };
+
+    auto fd = brain->config->fieldDimensions;
     auto fieldLines = brain->data->getFieldLines();
     for (int i = 0; i < fieldLines.size(); i++) {
         auto line = fieldLines[i];
         if (line.type != LineType::TouchLine && line.type != LineType::GoalLine && line.type != LineType::MiddleLine) continue;
-        if (line.confidence < 0.8) continue;
+        if (line.confidence < minConfidence) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, confidence(%.2f) < %.2f", line.confidence, minConfidence)));
+            continue;
+        }
+
+        double ageMsec = brain->msecsSince(line.timePoint);
+        if (ageMsec > maxLineAgeMsec) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, age(%.1fms) > %.1fms", ageMsec, maxLineAgeMsec)));
+            continue;
+        }
+
+        double length = lineLength(line.posToField);
+        if (length < minLineLength) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, length(%.2f) < %.2f", length, minLineLength)));
+            continue;
+        }
         
         double dist = pointMinDistToLine(
             Point2D({brain->data->robotPoseToField.x, brain->data->robotPoseToField.y}), 
             line.posToField
         );
-        if (dist > maxDist) continue;
+        if (dist > maxDist) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, dist(%.2f) > maxDist(%.2f)", dist, maxDist)));
+            continue;
+        }
 
         if (line.type == LineType::TouchLine) {
-           if (line.confidence > bestConfidenceTouchline) {
-               bestConfidenceTouchline = line.confidence;
-               touchLine = line;
-               touchLineFound = true;
-           }
+            if (line.side == LineSide::NA) {
+                log->log(logPathF, rerun::TextLog("Rejected touchline, side is NA"));
+                continue;
+            }
+
+            double y_m = line.side == LineSide::Left ? fd.width / 2.0 : -fd.width / 2.0;
+            Line mapLine = {-fd.length / 2.0, y_m, fd.length / 2.0, y_m};
+            double angle = angleBetweenLines(line.posToField, mapLine);
+            if (angle > angleTolerance) {
+                log->log(logPathF, rerun::TextLog(format("Rejected touchline, angle(%.2f) > %.2f", angle, angleTolerance)));
+                continue;
+            }
+
+            double y_o = (line.posToField.y0 + line.posToField.y1) / 2.0;
+            addCandidate(dyCandidates, y_m - y_o, line.confidence, "TouchLine");
         } else if (line.type == LineType::GoalLine) {
-            if (line.confidence > bestConfidenceGoalline) {
-                bestConfidenceGoalline = line.confidence;
-                goalLine = line;
-                goalLineFound = true;
+            if (line.half == LineHalf::NA) {
+                log->log(logPathF, rerun::TextLog("Rejected goalline, half is NA"));
+                continue;
             }
+
+            double x_m = line.half == LineHalf::Opponent ? fd.length / 2.0 : -fd.length / 2.0;
+            Line mapLine = {x_m, -fd.width / 2.0, x_m, fd.width / 2.0};
+            double angle = angleBetweenLines(line.posToField, mapLine);
+            if (angle > angleTolerance) {
+                log->log(logPathF, rerun::TextLog(format("Rejected goalline, angle(%.2f) > %.2f", angle, angleTolerance)));
+                continue;
+            }
+
+            double x_o = (line.posToField.x0 + line.posToField.x1) / 2.0;
+            addCandidate(dxCandidates, x_m - x_o, line.confidence, "GoalLine");
         } else if (line.type == LineType::MiddleLine) {
-            if (line.confidence > bestConfidenceMiddleLine) {
-                bestConfidenceMiddleLine = line.confidence;
-                middleLine = line;
-                middleLineFound = true;
+            Line mapLine = {0.0, -fd.width / 2.0, 0.0, fd.width / 2.0};
+            double angle = angleBetweenLines(line.posToField, mapLine);
+            if (angle > angleTolerance) {
+                log->log(logPathF, rerun::TextLog(format("Rejected middleline, angle(%.2f) > %.2f", angle, angleTolerance)));
+                continue;
             }
-        }
-    }
 
-    // 计算校正量
-    double dx = 0; 
-    double dy = 0; 
-    auto fd = brain->config->fieldDimensions;
-    if (touchLineFound) {
-       double y_m = touchLine.side == LineSide::Left ? fd.width / 2.0 : - fd.width / 2.0;
-       double perpDist = pointPerpDistToLine(
-           Point2D({brain->data->robotPoseToField.x, brain->data->robotPoseToField.y}),
-           touchLine.posToField
-       );
-       double y_o = touchLine.side == LineSide::Left ? 
-           brain->data->robotPoseToField.y - perpDist :
-           brain->data->robotPoseToField.y + perpDist;
-       dy = y_m - y_o;
-    }
-    if (goalLineFound) {
-        double x_m = goalLine.half == LineHalf::Opponent ? fd.length / 2.0: - fd.length / 2.0;
-        double perpDist = pointPerpDistToLine(
-            Point2D({brain->data->robotPoseToField.x, brain->data->robotPoseToField.y}),
-            goalLine.posToField
-        );
-        double x_o = goalLine.half == LineHalf::Opponent?
-            brain->data->robotPoseToField.x - perpDist :
-            brain->data->robotPoseToField.x + perpDist;
-        dx = x_m - x_o;
-    } else if (middleLineFound) {
-        double x_m = 0;
-        auto linePos = middleLine.posToField;
-        auto robotPose = brain->data->robotPoseToField;
-        vector<double> pointA(2);
-        vector<double> pointB(2);
-        vector<double> pointR = {robotPose.x, robotPose.y};
-
-        if (linePos.y0 > linePos.y1) {
-            pointA = {linePos.x0, linePos.y0};
-            pointB = {linePos.x1, linePos.y1};
-        } else {
-            pointA = {linePos.x1, linePos.y1};
-            pointB = {linePos.x0, linePos.y0};
-        }
-
-        vector<double> vl = {pointB[0] - pointA[0], pointB[1] - pointA[1]};
-        vector<double> vr = {pointR[0] - pointA[0], pointR[1] - pointA[1]};
-
-        double normvl = norm(vl);
-        double normvr = norm(vr);
-        if (normvl < 1e-3 || normvr < 1e-3) {
-            dx = 10000; // a large enough number that will certainly be bigger than max drift
-        } else {
-            double dist = crossProduct(vr, vl) / normvl;
-            double x_o = robotPose.x + dist;
-            dx = x_m - x_o;
+            double x_o = (line.posToField.x0 + line.posToField.x1) / 2.0;
+            addCandidate(dxCandidates, -x_o, line.confidence, "MiddleLine");
         }
     }
 
     // 没找到
-    if ((!touchLineFound && !goalLineFound && !middleLineFound)) {
+    if (dxCandidates.empty() && dyCandidates.empty()) {
         log->log(logPathF,
-            rerun::TextLog("No touchline or goalline or middleLine found.")
+            rerun::TextLog("No valid touchline or goalline or middleLine found.")
         );
         return NodeStatus::SUCCESS;
     }
+
+    if (maxSpread(dxCandidates) > consistencyTolerance) {
+        log->log(logPathF,
+            rerun::TextLog(format("Failed, dx candidates inconsistent. spread(%.2f) > %.2f", maxSpread(dxCandidates), consistencyTolerance))
+        );
+        return NodeStatus::SUCCESS;
+    }
+    if (maxSpread(dyCandidates) > consistencyTolerance) {
+        log->log(logPathF,
+            rerun::TextLog(format("Failed, dy candidates inconsistent. spread(%.2f) > %.2f", maxSpread(dyCandidates), consistencyTolerance))
+        );
+        return NodeStatus::SUCCESS;
+    }
+
+    // 计算校正量. 边线只作为保守平移约束, 不修正 theta.
+    double dx = dxCandidates.empty() ? 0.0 : weightedAverage(dxCandidates);
+    double dy = dyCandidates.empty() ? 0.0 : weightedAverage(dyCandidates);
 
     // 偏量太大, 不用. 可能是误识别导致的.
     double drift = norm(dx, dy);
@@ -3097,31 +3146,41 @@ NodeStatus SelfLocateBorder::tick()
         );
         return NodeStatus::SUCCESS;
     }
+    double appliedDx = clamp(dx, maxCorrectionPerTick) * softFusionAlpha;
+    double appliedDy = clamp(dy, maxCorrectionPerTick) * softFusionAlpha;
+    double appliedDrift = norm(appliedDx, appliedDy);
     
     // 利用这个点计算一个假设的新 Pose
     Pose2D hypoPose = brain->data->robotPoseToField;
-    hypoPose.x += dx;
-    hypoPose.y += dy;
+    hypoPose.x += appliedDx;
+    hypoPose.y += appliedDy;
 
     // validate the hypo with other markers
-    auto allMarkers = brain->data->getMarkersForLocator();
-    if (allMarkers.size() > 0) {
-        double residual = brain->locator->residual(allMarkers, hypoPose) / allMarkers.size();
-        if (residual > brain->locator->residualTolerance) { // validation failed. 可能看到的 penalty mark 为误识别
-            log->log(logPathF,
-                rerun::TextLog(format("Failed, validation residual(%.2f) > tolerance(%.2f)", residual, brain->locator->residualTolerance))
-            );
-            return NodeStatus::SUCCESS;
+    double markerResidual = -1.0;
+    if (validate) {
+        auto allMarkers = brain->data->getMarkersForLocator();
+        if (allMarkers.size() > 0) {
+            markerResidual = brain->locator->residual(allMarkers, hypoPose) / allMarkers.size();
+            if (markerResidual > brain->locator->residualTolerance) { // validation failed. 可能看到的场线为误识别
+                log->log(logPathF,
+                    rerun::TextLog(format("Failed, validation residual(%.2f) > tolerance(%.2f)", markerResidual, brain->locator->residualTolerance))
+                );
+                return NodeStatus::SUCCESS;
+            }
         }
     }
 
+    double lineResidualBefore = drift;
+    double lineResidualAfter = norm(dx - appliedDx, dy - appliedDy);
+
     // else everything is ok, recalibrate with this hypo pose
-    brain->log->log(logPathS, rerun::TextLog(format("Success. Drift = %.2f", drift)));
-    string label = "";
-    if (touchLineFound) label += "TouchLine";
-    if (touchLineFound && (goalLineFound || middleLineFound)) label += " ";
-    if (goalLineFound) label += "GoalLine";
-    if (middleLineFound) label += "MiddleLine";
+    string label = labelsOf(dxCandidates);
+    if (!label.empty() && !dyCandidates.empty()) label += " ";
+    label += labelsOf(dyCandidates);
+    brain->log->log(logPathS, rerun::TextLog(format(
+        "Success. raw=(%.2f, %.2f), applied=(%.2f, %.2f), drift=%.2f, appliedDrift=%.2f, lineResidual %.2f->%.2f, markerResidual=%.2f, alpha=%.2f, lines=%s",
+        dx, dy, appliedDx, appliedDy, drift, appliedDrift, lineResidualBefore, lineResidualAfter, markerResidual, softFusionAlpha, label.c_str()
+    )));
     brain->log->log(
         "field/recal/border/success",
         rerun::Arrows2D::from_vectors({{hypoPose.x - brain->data->robotPoseToField.x, -hypoPose.y + brain->data->robotPoseToField.y}})
@@ -3177,24 +3236,46 @@ NodeStatus SelfLocateLine::tick()
 
     auto fieldLines = brain->data->getFieldLines();
     // 计算每条线到机器人的距离
-    double dist0;
-    double dist1;
     std::vector<std::pair<double, FieldLine>> lineWithDist;
+    const double minLineConfidence = 0.7;
+    const double minLineLength = 0.5;
+    const double maxLineAgeMsec = 700.0;
     for (const auto& line : fieldLines) {
-        dist0 = norm(
-            line.posToField.x0 - brain->data->robotPoseToField.x,
-            line.posToField.y0 - brain->data->robotPoseToField.y
+        if (line.confidence < minLineConfidence) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, confidence(%.2f) < %.2f", line.confidence, minLineConfidence)));
+            continue;
+        }
+
+        double ageMsec = brain->msecsSince(line.timePoint);
+        if (ageMsec > maxLineAgeMsec) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, age(%.1fms) > %.1fms", ageMsec, maxLineAgeMsec)));
+            continue;
+        }
+
+        double length = lineLength(line.posToField);
+        if (length < minLineLength) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, length(%.2f) < %.2f", length, minLineLength)));
+            continue;
+        }
+
+        double distToLine = pointMinDistToLine(
+            Point2D({brain->data->robotPoseToField.x, brain->data->robotPoseToField.y}),
+            line.posToField
         );
-        dist1 = norm(
-            line.posToField.x1 - brain->data->robotPoseToField.x,
-            line.posToField.y1 - brain->data->robotPoseToField.y
-        );
-        if (dist0 > maxDist || dist1 > maxDist) continue; // max_dist为2，只有线段两端距机器人的距离都在两米范围内的线才会被考虑，不合理
+        if (distToLine > maxDist) {
+            log->log(logPathF, rerun::TextLog(format("Rejected line, distToLine(%.2f) > maxDist(%.2f)", distToLine, maxDist)));
+            continue;
+        }
+
         double dist = norm(
             (line.posToField.x0+line.posToField.x1)/2 - brain->data->robotPoseToField.x,
             (line.posToField.y0+line.posToField.y1)/2 - brain->data->robotPoseToField.y
         );
         lineWithDist.emplace_back(dist, line);
+    }
+    if (lineWithDist.empty()) {
+        log->log(logPathF, rerun::TextLog("Failed, no line passed confidence/age/length/distance filters"));
+        return NodeStatus::SUCCESS;
     }
     // 按距离排序
     std::sort(lineWithDist.begin(), lineWithDist.end(),
