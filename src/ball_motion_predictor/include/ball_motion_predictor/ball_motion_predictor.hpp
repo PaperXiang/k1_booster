@@ -54,10 +54,17 @@ private:
         Point3D position;
     };
 
+    struct VelocitySample {
+        double timestamp = 0.0;
+        Point2D velocity;
+    };
+
     void pushSample(const Point3D &position, double timestamp);
+    void pushVelocitySample(const Point2D &velocity, double timestamp);
 
     Config config_;
     std::deque<Sample> history_;
+    std::deque<VelocitySample> velocity_history_;
 };
 
 } // namespace ball_motion_predictor

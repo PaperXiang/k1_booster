@@ -393,15 +393,23 @@ NodeStatus Chase::tick()
     brain->get_parameter("obstacle_avoidance.avoid_during_chase", avoidObstacle);
     brain->get_parameter("obstacle_avoidance.chase_ao_safe_dist", oaSafeDist);
 
-    if (
-        brain->config->limitNearBallSpeed
-        && brain->data->ball.range < min(0.75, brain->config->nearBallRange)
-    ) {
-        vxLimit = min(brain->config->nearBallSpeedLimit, vxLimit);
-    }
-
     double ballRange = brain->data->ball.range;
     double ballYaw = brain->data->ball.yawToRobot;
+
+    if (brain->config->limitNearBallSpeed && ballRange < brain->config->nearBallRange) {
+        const double nearRange = max(brain->config->nearBallRange, 1e-3);
+        const double closeRange = min(0.75, nearRange);
+        const double closeSpeedLimit = min(brain->config->nearBallSpeedLimit, 0.38);
+        const double rangeRatio = cap((ballRange - closeRange) / max(nearRange - closeRange, 1e-3), 1.0, 0.0);
+        const double dynamicSpeedLimit = closeSpeedLimit +
+            (brain->config->nearBallSpeedLimit - closeSpeedLimit) * rangeRatio;
+        vxLimit = min(vxLimit, dynamicSpeedLimit);
+
+        if (ballRange < closeRange) {
+            vyLimit = min(vyLimit, 0.45);
+        }
+    }
+
     double kickDir = brain->data->kickDir;
     double theta_br = atan2(
         brain->data->robotPoseToField.y - brain->data->ball.posToField.y,
@@ -898,6 +906,19 @@ NodeStatus Adjust::tick()
     vy = cap(vy, vyLimit, -vyLimit);
     vtheta = cap(vtheta, vthetaLimit, -vthetaLimit);
 
+    if (brain->config->limitNearBallSpeed && ballRange < brain->config->nearBallRange) {
+        const double nearRange = max(brain->config->nearBallRange, 1e-3);
+        const double closeRange = min(0.75, nearRange);
+        const double closeSpeedLimit = min(brain->config->nearBallSpeedLimit, 0.30);
+        const double rangeRatio = cap((ballRange - closeRange) / max(nearRange - closeRange, 1e-3), 1.0, 0.0);
+        const double dynamicSpeedLimit = closeSpeedLimit +
+            (brain->config->nearBallSpeedLimit - closeSpeedLimit) * rangeRatio;
+        vx = cap(vx, dynamicSpeedLimit, -0.0);
+        if (ballRange < closeRange) {
+            vy = cap(vy, 0.35, -0.35);
+        }
+    }
+
     brain->client->setVelocity(vx, vy, vtheta, false, true, false);
     return NodeStatus::SUCCESS;
 }
@@ -1280,7 +1301,7 @@ NodeStatus Kick::onStart()
 
     // 初始化 Node
     _startTime = brain->get_clock()->now();
-    if (brain->config->enableStableKick && brain->threatLevel() < 0.5) _state = "stablize"; // false  开启后, 在 kick 时, 如风险较低, 则稳定一下再出脚.
+    if (brain->config->enableStableKick) _state = "stablize"; // 开启后先稳定一下再出脚，避免近球阶段继续前冲。
     else _state = "kick";
      
     // 发布运动指令

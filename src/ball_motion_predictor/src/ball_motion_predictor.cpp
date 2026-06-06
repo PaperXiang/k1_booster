@@ -40,6 +40,7 @@ const Config &BallMotionPredictor::config() const {
 
 void BallMotionPredictor::reset() {
     history_.clear();
+    velocity_history_.clear();
 }
 
 std::size_t BallMotionPredictor::historySize() const {
@@ -50,6 +51,13 @@ void BallMotionPredictor::pushSample(const Point3D &position, double timestamp) 
     history_.push_back(Sample{timestamp, position});
     while (history_.size() > 2) {
         history_.pop_front();
+    }
+}
+
+void BallMotionPredictor::pushVelocitySample(const Point2D &velocity, double timestamp) {
+    velocity_history_.push_back(VelocitySample{timestamp, velocity});
+    while (velocity_history_.size() > 2) {
+        velocity_history_.pop_front();
     }
 }
 
@@ -82,6 +90,7 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
     const auto &last = history_.back();
     double dt_current = timestamp - last.timestamp;
     if (dt_current < config_.min_dt || dt_current > config_.max_dt) {
+        velocity_history_.clear();
         pushSample(measured_position, timestamp);
         return result;
     }
@@ -91,22 +100,17 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
         (measured_position.y - last.position.y) / dt_current};
     result.velocity = limitVectorNorm(result.velocity, config_.max_speed);
 
-    if (history_.size() >= 2) {
-        const auto &prev = history_.front();
-        double dt_prev = last.timestamp - prev.timestamp;
-        if (dt_prev >= config_.min_dt && dt_prev <= config_.max_dt) {
-            Point2D prev_velocity{
-                (last.position.x - prev.position.x) / dt_prev,
-                (last.position.y - prev.position.y) / dt_prev};
-            prev_velocity = limitVectorNorm(prev_velocity, config_.max_speed);
-
-            double dt_velocity = 0.5 * (dt_prev + dt_current);
-            if (dt_velocity > 1e-6) {
-                result.acceleration = Point2D{
-                    (result.velocity.x - prev_velocity.x) / dt_velocity,
-                    (result.velocity.y - prev_velocity.y) / dt_velocity};
-                result.acceleration = limitVectorNorm(result.acceleration, config_.max_acceleration);
-            }
+    double velocity_timestamp = 0.5 * (last.timestamp + timestamp);
+    if (!velocity_history_.empty()) {
+        const auto &prev_velocity = velocity_history_.back();
+        double dt_velocity = velocity_timestamp - prev_velocity.timestamp;
+        if (dt_velocity >= config_.min_dt && dt_velocity <= config_.max_dt) {
+            result.acceleration = Point2D{
+                (result.velocity.x - prev_velocity.velocity.x) / dt_velocity,
+                (result.velocity.y - prev_velocity.velocity.y) / dt_velocity};
+            result.acceleration = limitVectorNorm(result.acceleration, config_.max_acceleration);
+        } else if (dt_velocity < 0.0 || dt_velocity > config_.max_history_gap) {
+            velocity_history_.clear();
         }
     }
 
@@ -117,6 +121,7 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
                                    0.5 * result.acceleration.y * predict_time * predict_time;
 
     pushSample(measured_position, timestamp);
+    pushVelocitySample(result.velocity, velocity_timestamp);
     result.prediction_applied = predict_time > 1e-6 && isFinitePosition(result.predicted_position);
     if (!result.prediction_applied) {
         result.predicted_position = measured_position;

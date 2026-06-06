@@ -97,13 +97,13 @@ public:
     // double memoryLength = 3.0;           // 连续多少秒看不到球时, 就认为球丢了
     double ballConfidenceThreshold;        // confidence 低于这个阈值, 认为不是球(注意detection模块目前传入目标置信度都是 > 20 的)
     double ballConfidenceDecayRate;        // # 看到 confidence 为 100 的球后, 多少秒没有再看到, 则认为球丢了. 最后看到的球信息越低, 则越快认为球已经丢了.
-    bool enableStableKick = false;        // 开启后, 在 kick 时, 如风险较低, 则稳定一下再出脚.
+    bool enableStableKick = true;         // 开启后, 在 kick 时, 先稳定一下再出脚.
     bool treatPersonAsRobot = false;     // 是否把人当作机器人处理, 用于调试
     double ballOutThreshold = 2.0;        // 球出界的阈值, 用于判断球是否出界
     double tmBallDistThreshold = 2.0;      // 队友发送的球的位置与我当前位置的距离, 如果大于此值, 则认为队友的信息准确. (因为双方定位精度问题, 如果这个距离太小, 则会使我产生大方向上的误判. 例如, 队友给的球的位置在我身前, 而实际球在我身后. 因为队友给我的不是球相对于我的位置, 而是相对于球场的位置)
     bool limitNearBallSpeed = true;        // 是否限制在 chase 时靠近球时的速度
-    double nearBallSpeedLimit = 0.6;       // 靠近球时的速度限制
-    double nearBallRange = 2.0;            // 靠近球时的范围, 在这个范围内, 限制速度
+    double nearBallSpeedLimit = 0.75;      // 靠近球时的速度限制
+    double nearBallRange = 1.3;            // 靠近球时的范围, 在这个范围内, 限制速度
 
     // locator 参数
     int pfMinMarkerCnt = 5; // 最少看到多少到 marker, 才可以进行粒子滤波定位
