@@ -7,7 +7,7 @@
          <ReactiveSequence>
             <GoBackInField />
             <Parallel success_count="1" failure_count="2">
-               <CamLissajousScan yaw_amplitude="1.012" pitch_center="0.3" pitch_amplitude="0.567" cycle_msec="2200" />
+               <CamLissajousScan yaw_amplitude="1.012" pitch_center="0.45" pitch_amplitude="0.567" cycle_msec="2200" />
                <RobotFindBall vyaw_limit="1.2" transition_vx="0.25" />
             </Parallel>
          </ReactiveSequence>
