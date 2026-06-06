@@ -1073,11 +1073,11 @@ NodeStatus StrikerDecide::tick() {
 
     double kickValue = brain->kickValue(dir_rb_f);
     double threatLevel = brain->threatLevel();
-    bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 0.35;
-    bool visualKickBallWindow = ballX > 0.35 && ballX < 2.5 && fabs(ballY) < 0.55;
-    bool visualKickYawWindow = fabs(ballYaw) < autoVisualKickEnableAngle;
-    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, visualKickBallWindow: %d, visualKickYawWindow: %d",
-        kickValue, threatLevel, fabs(deltaDir), visualKickBallWindow, visualKickYawWindow));
+    bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 1.15;
+    bool visualKickBallWindow = ballX > 0.25 && ballX < autoVisualKickEnableDistMax && fabs(ballY) < 1.00;
+    bool visualKickYawWindow = fabs(ballYaw) < autoVisualKickEnableAngle * 1.2;
+    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, visualKickAligned: %d, visualKickBallWindow: %d, visualKickYawWindow: %d, tmMyCost: %.2f, tmMyCostRank: %d",
+        kickValue, threatLevel, fabs(deltaDir), visualKickAligned, visualKickBallWindow, visualKickYawWindow, brain->data->tmMyCost, brain->data->tmMyCostRank));
      
 
     string newDecision;
