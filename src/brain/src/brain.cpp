@@ -366,49 +366,62 @@ void Brain::pubKickMsg() {
 void Brain::handleSpecialStates() {
 
     const double KICKOFF_DURATION = 10.0; 
+    const double KICKOFF_BALL_MOVE_THRESHOLD = 0.25;
     string gameState = tree->getEntry<string>("gc_game_state");
     bool isKickoffSide = tree->getEntry<bool>("gc_is_kickoff_side");
     string gameSubStateType = tree->getEntry<string>("gc_game_sub_state_type");
     string gameSubState = tree->getEntry<string>("gc_game_sub_state");
     bool isFreekickKickoffSide = tree->getEntry<bool>("gc_is_sub_state_kickoff_side");
     auto now = get_clock()->now();
-    static bool wasRegularKickoffSetup = false;
-    static bool wasFreekickKickoffSetup = false;
+    static bool wasRestartSetup = false;
 
-    bool regularKickoffSetup = gameState == "SET" && isKickoffSide;
-    if (regularKickoffSetup) {
-        if (!wasRegularKickoffSetup) {
-            data->requireKickoffFirstTouch = true;
-            data->kickoffFirstTouchDone = false;
+    auto ballPosToOdom = [=]() {
+        double c = cos(data->robotPoseToOdom.theta);
+        double s = sin(data->robotPoseToOdom.theta);
+        Point pos;
+        pos.x = data->robotPoseToOdom.x + c * data->ball.posToRobot.x - s * data->ball.posToRobot.y;
+        pos.y = data->robotPoseToOdom.y + s * data->ball.posToRobot.x + c * data->ball.posToRobot.y;
+        return pos;
+    };
+
+    bool restartSetup = gameState == "READY" || gameState == "SET" || gameSubState == "GET_READY" || gameSubState == "SET";
+    if (restartSetup && !wasRestartSetup) {
+        data->kickoffVisionKickBlocked = true;
+        data->kickoffBallRefValid = false;
+        data->kickoffVisionKickBlockStartTime = now;
+    }
+    wasRestartSetup = restartSetup;
+
+    if (data->kickoffVisionKickBlocked && data->ballDetected) {
+        Point currentBallPosToOdom = ballPosToOdom();
+        if (restartSetup || !data->kickoffBallRefValid) {
+            data->kickoffBallPosToOdom = currentBallPosToOdom;
+            data->kickoffBallRefValid = true;
+        } else {
+            double ballMoveDist = norm(
+                currentBallPosToOdom.x - data->kickoffBallPosToOdom.x,
+                currentBallPosToOdom.y - data->kickoffBallPosToOdom.y
+            );
+            if (ballMoveDist > KICKOFF_BALL_MOVE_THRESHOLD) {
+                data->kickoffVisionKickBlocked = false;
+            }
         }
+    }
+
+    if (gameState == "SET" && isKickoffSide) {
         data->isKickingOff = true;
         data->kickoffStartTime = now;
     } else if (msecsSince(data->kickoffStartTime) > KICKOFF_DURATION * 1000) {
         data->isKickingOff = false;
-        if (data->requireKickoffFirstTouch && !data->isFreekickKickingOff) {
-            data->requireKickoffFirstTouch = false;
-            data->kickoffFirstTouchDone = true;
-        }
     }
-    wasRegularKickoffSetup = regularKickoffSetup;
 
-    bool freekickKickoffSetup = gameState == "PLAY" && gameSubStateType == "FREE_KICK" && isFreekickKickoffSide;
-    if (freekickKickoffSetup) {
-        if (!wasFreekickKickoffSetup) {
-            data->requireKickoffFirstTouch = true;
-            data->kickoffFirstTouchDone = false;
-        }
+    if (gameState == "PLAY" && gameSubStateType == "FREE_KICK" && isFreekickKickoffSide) {
         data->isFreekickKickingOff = true;
         data->freekickKickoffStartTime = now;
     } else if (msecsSince(data->freekickKickoffStartTime) > KICKOFF_DURATION * 1000) {
         data->isFreekickKickingOff = false;
         data->isDirectShoot = false;
-        if (data->requireKickoffFirstTouch && !data->isKickingOff) {
-            data->requireKickoffFirstTouch = false;
-            data->kickoffFirstTouchDone = true;
-        }
     }
-    wasFreekickKickoffSetup = freekickKickoffSetup;
 
     static int lastScore = 0;
     if (data->score > lastScore) {
