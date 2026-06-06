@@ -909,13 +909,13 @@ NodeStatus Adjust::tick()
     if (brain->config->limitNearBallSpeed && ballRange < brain->config->nearBallRange) {
         const double nearRange = max(brain->config->nearBallRange, 1e-3);
         const double closeRange = min(0.75, nearRange);
-        const double closeSpeedLimit = min(brain->config->nearBallSpeedLimit, 0.30);
+        const double closeSpeedLimit = min(brain->config->nearBallSpeedLimit, 0.45);
         const double rangeRatio = cap((ballRange - closeRange) / max(nearRange - closeRange, 1e-3), 1.0, 0.0);
         const double dynamicSpeedLimit = closeSpeedLimit +
             (brain->config->nearBallSpeedLimit - closeSpeedLimit) * rangeRatio;
         vx = cap(vx, dynamicSpeedLimit, -0.0);
         if (ballRange < closeRange) {
-            vy = cap(vy, 0.35, -0.35);
+            vy = cap(vy, 0.65, -0.65);
         }
     }
 
