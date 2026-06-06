@@ -1,12 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
-project(ball_motion_predictor)
+project(ball_kalman_filter)
 
 find_package(ament_cmake REQUIRED)
-find_package(ball_kalman_filter REQUIRED)
 include(CTest)
 
 add_library(${PROJECT_NAME}
-  src/ball_motion_predictor.cpp
+  src/ball_kalman_filter.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -15,7 +14,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
-ament_target_dependencies(${PROJECT_NAME} ball_kalman_filter)
 
 install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
@@ -31,14 +29,13 @@ install(DIRECTORY include/
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_include_directories(include)
-ament_export_dependencies(ball_kalman_filter)
 
 if(BUILD_TESTING)
-  add_executable(test_ball_motion_predictor
-    test/test_ball_motion_predictor.cpp
+  add_executable(test_ball_kalman_filter
+    test/test_ball_kalman_filter.cpp
   )
-  target_link_libraries(test_ball_motion_predictor ${PROJECT_NAME})
-  add_test(NAME test_ball_motion_predictor COMMAND test_ball_motion_predictor)
+  target_link_libraries(test_ball_kalman_filter ${PROJECT_NAME})
+  add_test(NAME test_ball_kalman_filter COMMAND test_ball_kalman_filter)
 endif()
 
 ament_package()

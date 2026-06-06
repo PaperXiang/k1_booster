@@ -195,10 +195,16 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         ball_motion_config.max_speed = std::max(0.0, as_or<double>(motion_node["max_speed"], 4.0));
         ball_motion_config.max_acceleration = std::max(0.0, as_or<double>(motion_node["max_acceleration"], 8.0));
         ball_motion_config.allow_projection = as_or<bool>(motion_node["allow_projection"], false);
+        ball_motion_config.enable_kalman_filter = as_or<bool>(motion_node["enable_kalman_filter"], false);
+        ball_motion_config.kalman_process_noise_position = std::max(0.0, as_or<double>(motion_node["kalman_process_noise_position"], 0.03));
+        ball_motion_config.kalman_process_noise_velocity = std::max(0.0, as_or<double>(motion_node["kalman_process_noise_velocity"], 0.60));
+        ball_motion_config.kalman_measurement_noise = std::max(1e-9, as_or<double>(motion_node["kalman_measurement_noise"], 0.06));
+        ball_motion_config.kalman_initial_covariance = std::max(1e-9, as_or<double>(motion_node["kalman_initial_covariance"], 1.0));
     }
     ball_motion_predictor_.setConfig(ball_motion_config);
     std::cout << "球运动预测开关：" << ball_motion_config.enable
               << "，预测时间：" << ball_motion_config.predict_time << "s"
+              << "，卡尔曼滤波：" << ball_motion_config.enable_kalman_filter
               << "，允许投影预测：" << ball_motion_config.allow_projection << std::endl;
 
     data_syncer_ = std::make_shared<DataSyncer>(use_depth_);
@@ -572,7 +578,10 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         if (detection.class_name == "Ball" && detection_index == ball_motion_target_index) {
             std::cout << "[BallMotion] predicted=" << ball_motion_result.prediction_applied
                       << ", measured=(" << measured_position.x << ", " << measured_position.y << ")"
+                      << ", kalman=" << ball_motion_result.kalman_initialized
+                      << ", filtered=(" << ball_motion_result.filtered_position.x << ", " << ball_motion_result.filtered_position.y << ")"
                       << ", optimized=(" << optimized_position.x << ", " << optimized_position.y << ")"
+                      << ", filtered_velocity=(" << ball_motion_result.filtered_velocity.x << ", " << ball_motion_result.filtered_velocity.y << ")"
                       << ", velocity=(" << ball_motion_result.velocity.x << ", " << ball_motion_result.velocity.y << ")"
                       << ", acceleration=(" << ball_motion_result.acceleration.x << ", " << ball_motion_result.acceleration.y << ")"
                       << ", position_confidence=" << detection_obj.position_confidence << std::endl;

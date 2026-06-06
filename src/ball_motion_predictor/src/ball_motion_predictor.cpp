@@ -25,12 +25,23 @@ Point2D limitVectorNorm(const Point2D &value, double max_norm) {
     return Point2D{value.x * scale, value.y * scale};
 }
 
+ball_kalman_filter::Config toKalmanConfig(const Config &config) {
+    ball_kalman_filter::Config kalman_config;
+    kalman_config.process_noise_position = config.kalman_process_noise_position;
+    kalman_config.process_noise_velocity = config.kalman_process_noise_velocity;
+    kalman_config.measurement_noise = config.kalman_measurement_noise;
+    kalman_config.initial_covariance = config.kalman_initial_covariance;
+    return kalman_config;
+}
+
 } // namespace
 
-BallMotionPredictor::BallMotionPredictor(const Config &config) : config_(config) {}
+BallMotionPredictor::BallMotionPredictor(const Config &config)
+    : config_(config), kalman_filter_(toKalmanConfig(config)) {}
 
 void BallMotionPredictor::setConfig(const Config &config) {
     config_ = config;
+    kalman_filter_.setConfig(toKalmanConfig(config_));
     reset();
 }
 
@@ -41,6 +52,7 @@ const Config &BallMotionPredictor::config() const {
 void BallMotionPredictor::reset() {
     history_.clear();
     velocity_history_.clear();
+    kalman_filter_.reset();
 }
 
 std::size_t BallMotionPredictor::historySize() const {
@@ -66,6 +78,7 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
                                    bool reliable_measurement) {
     Result result;
     result.measured_position = measured_position;
+    result.filtered_position = measured_position;
     result.predicted_position = measured_position;
 
     if (!config_.enable || !reliable_measurement || !isFinitePosition(measured_position)) {
@@ -82,8 +95,25 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
         }
     }
 
+    Point3D position_for_prediction = measured_position;
+    if (config_.enable_kalman_filter) {
+        double kalman_dt = history_.empty() ? 0.0 : timestamp - history_.back().timestamp;
+        bool valid_kalman_dt = kalman_dt >= config_.min_dt && kalman_dt <= config_.max_dt;
+        auto kalman_result = kalman_filter_.update(
+            ball_kalman_filter::Point2D{measured_position.x, measured_position.y},
+            kalman_dt,
+            valid_kalman_dt);
+        position_for_prediction = Point3D{kalman_result.position.x, kalman_result.position.y, measured_position.z};
+        result.filtered_position = position_for_prediction;
+        result.filtered_velocity = limitVectorNorm(
+            Point2D{kalman_result.velocity.x, kalman_result.velocity.y},
+            config_.max_speed);
+        result.kalman_initialized = kalman_result.initialized;
+        result.predicted_position = position_for_prediction;
+    }
+
     if (history_.empty()) {
-        pushSample(measured_position, timestamp);
+        pushSample(position_for_prediction, timestamp);
         return result;
     }
 
@@ -91,13 +121,13 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
     double dt_current = timestamp - last.timestamp;
     if (dt_current < config_.min_dt || dt_current > config_.max_dt) {
         velocity_history_.clear();
-        pushSample(measured_position, timestamp);
+        pushSample(position_for_prediction, timestamp);
         return result;
     }
 
     result.velocity = Point2D{
-        (measured_position.x - last.position.x) / dt_current,
-        (measured_position.y - last.position.y) / dt_current};
+        (position_for_prediction.x - last.position.x) / dt_current,
+        (position_for_prediction.y - last.position.y) / dt_current};
     result.velocity = limitVectorNorm(result.velocity, config_.max_speed);
 
     double velocity_timestamp = 0.5 * (last.timestamp + timestamp);
@@ -120,7 +150,7 @@ Result BallMotionPredictor::update(const Point3D &measured_position,
     result.predicted_position.y += result.velocity.y * predict_time +
                                    0.5 * result.acceleration.y * predict_time * predict_time;
 
-    pushSample(measured_position, timestamp);
+    pushSample(position_for_prediction, timestamp);
     pushVelocitySample(result.velocity, velocity_timestamp);
     result.prediction_applied = predict_time > 1e-6 && isFinitePosition(result.predicted_position);
     if (!result.prediction_applied) {

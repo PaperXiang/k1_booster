@@ -63,5 +63,48 @@ int main() {
         return 1;
     }
 
+    ball_motion_predictor::Config kalman_config = config;
+    kalman_config.enable_kalman_filter = true;
+
+    ball_motion_predictor::BallMotionPredictor kalman_predictor(kalman_config);
+    auto kalman_first = kalman_predictor.update({0.0, 0.0, 0.0}, 3.0, true);
+    if (expect(kalman_first.kalman_initialized, "kalman should initialize on first reliable sample")) {
+        return 1;
+    }
+    if (expect(!kalman_first.prediction_applied, "kalman first sample should only seed history")) {
+        return 1;
+    }
+
+    auto kalman_second = kalman_predictor.update({0.1, 0.0, 0.0}, 3.1, true);
+    if (expect(kalman_second.prediction_applied, "kalman second sample should apply prediction")) {
+        return 1;
+    }
+    if (expect(kalman_second.filtered_position.x > 0.0 && kalman_second.filtered_position.x < 0.11,
+               "kalman filtered position should track constant motion")) {
+        return 1;
+    }
+    if (expect(kalman_second.predicted_position.x > kalman_second.filtered_position.x,
+               "kalman prediction should extrapolate beyond filtered position")) {
+        return 1;
+    }
+
+    ball_motion_predictor::Config robust_kalman_config = kalman_config;
+    robust_kalman_config.kalman_measurement_noise = 1.0;
+    ball_motion_predictor::BallMotionPredictor robust_predictor(robust_kalman_config);
+    robust_predictor.update({0.0, 0.0, 0.0}, 4.0, true);
+    robust_predictor.update({0.1, 0.0, 0.0}, 4.1, true);
+    auto noisy = robust_predictor.update({1.0, 0.0, 0.0}, 4.2, true);
+    if (expect(noisy.kalman_initialized, "robust kalman should stay initialized")) {
+        return 1;
+    }
+    if (expect(noisy.filtered_position.x < 0.95,
+               "kalman filtered position should not fully follow a noisy measurement")) {
+        return 1;
+    }
+    if (expect(std::fabs(noisy.filtered_position.x - 0.2) < std::fabs(noisy.measured_position.x - 0.2),
+               "kalman filtered position should be closer to nominal motion than the outlier")) {
+        return 1;
+    }
+
     return 0;
 }

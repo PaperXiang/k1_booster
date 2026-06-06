@@ -77,6 +77,11 @@ ball_motion_prediction:
   max_speed: 4.0
   max_acceleration: 8.0
   allow_projection: false
+  enable_kalman_filter: true
+  kalman_process_noise_position: 0.03
+  kalman_process_noise_velocity: 0.60
+  kalman_measurement_noise: 0.06
+  kalman_initial_covariance: 1.0
 ball_pose_estimator:
   use_depth: false
   radius: 0.091

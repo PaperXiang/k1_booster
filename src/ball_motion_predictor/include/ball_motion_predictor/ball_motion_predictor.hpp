@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <deque>
 
+#include "ball_kalman_filter/ball_kalman_filter.hpp"
+
 namespace ball_motion_predictor {
 
 struct Point3D {
@@ -25,15 +27,23 @@ struct Config {
     double max_speed = 4.0;
     double max_acceleration = 8.0;
     bool allow_projection = false;
+    bool enable_kalman_filter = false;
+    double kalman_process_noise_position = 0.03;
+    double kalman_process_noise_velocity = 0.60;
+    double kalman_measurement_noise = 0.06;
+    double kalman_initial_covariance = 1.0;
 };
 
 struct Result {
     Point3D measured_position;
+    Point3D filtered_position;
     Point3D predicted_position;
+    Point2D filtered_velocity;
     Point2D velocity;
     Point2D acceleration;
     bool prediction_applied = false;
     bool history_reset = false;
+    bool kalman_initialized = false;
 };
 
 class BallMotionPredictor {
@@ -65,6 +75,7 @@ private:
     Config config_;
     std::deque<Sample> history_;
     std::deque<VelocitySample> velocity_history_;
+    ball_kalman_filter::BallKalmanFilter kalman_filter_;
 };
 
 } // namespace ball_motion_predictor
