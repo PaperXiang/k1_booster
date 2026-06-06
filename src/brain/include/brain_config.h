@@ -104,6 +104,7 @@ public:
     bool limitNearBallSpeed = true;        // 是否限制在 chase 时靠近球时的速度
     double nearBallSpeedLimit = 0.75;      // 靠近球时的速度限制
     double nearBallRange = 1.3;            // 靠近球时的范围, 在这个范围内, 限制速度
+    double adjustTimeoutSecs = 4.0;        // Adjust 状态最长持续时间，超时后回到 chase
 
     // locator 参数
     int pfMinMarkerCnt = 5; // 最少看到多少到 marker, 才可以进行粒子滤波定位

@@ -1147,6 +1147,9 @@ NodeStatus StrikerDecide::tick() {
     if (newDecision != "auto_visual_kick") {
         brain->data->tmImInVisualKick = false;
     }
+    if (newDecision != "adjust") {
+        brain->data->adjustTimerActive = false;
+    }
 
     setOutput("decision_out", newDecision);
     brain->log->logToScreen(

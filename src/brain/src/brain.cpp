@@ -55,6 +55,7 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("strategy.kick_theta_range", 0.22);
     declare_parameter<bool>("strategy.abort_kick_when_ball_moved", true);
     declare_parameter<double>("strategy.abort_kick_ball_move_threshold", 0.3);
+    declare_parameter<double>("strategy.adjust_timeout_secs", 4.0);
     declare_parameter<bool>("strategy.enable_bypass", false);
     declare_parameter<bool>("strategy.enable_shoot", false);
     declare_parameter<bool>("strategy.enable_directional_kick", false);
@@ -228,6 +229,7 @@ void Brain::loadConfig()
     get_parameter("strategy.limit_near_ball_speed", config->limitNearBallSpeed);
     get_parameter("strategy.near_ball_speed_limit", config->nearBallSpeedLimit);
     get_parameter("strategy.near_ball_range", config->nearBallRange);
+    get_parameter("strategy.adjust_timeout_secs", config->adjustTimeoutSecs);
 
     get_parameter("obstacle_avoidance.collision_threshold", config->collisionThreshold);
     get_parameter("obstacle_avoidance.safe_distance", config->safeDistance);

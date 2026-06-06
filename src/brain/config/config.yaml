@@ -45,6 +45,7 @@
       abort_kick_when_ball_moved: true # 踢球过程中如果球明显移动或丢失，是否提前终止踢球动作。
       abort_kick_ball_move_threshold: 0.3 # 判定球已被踢远/移动的距离阈值，单位米。
       abort_shoot_when_ball_moved: true # 预留：当前未声明/未使用，射门中止逻辑未接入该参数。
+      adjust_timeout_secs: 4.0 # Adjust 微调最长持续时间，超过后自动切回 chase 重新追球；<=0 表示关闭。
       limit_speed_near_border: false # 预留：当前未声明/未使用，靠边限速逻辑未接入该参数。
       near_border_speed_limit: 0.5 # 预留：当前未声明/未使用，靠边限速速度上限未接入。
       near_border_dist_threshold: -1.0 # 预留：当前未声明/未使用，靠边限速触发距离未接入。

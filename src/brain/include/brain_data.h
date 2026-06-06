@@ -143,6 +143,8 @@ public:
     int myStrikerIDRank = 0; // 我的 ID 在前锋中的排名, 用于多机配合. 
     bool tmImInVisualKick = false; // 自己是否处于 visual kick 模式
     bool shouldExitRLVisionKick = false; // 是否需要主动退出 visual kick 模式
+    rclcpp::Time adjustStartTime; // Adjust 开始时间
+    bool adjustTimerActive = false; // Adjust 计时器是否活跃
 
     // 通讯相关
     int discoveryMsgId = 0;
