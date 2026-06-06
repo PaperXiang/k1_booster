@@ -1084,12 +1084,24 @@ NodeStatus StrikerDecide::tick() {
     auto color = 0xFFFFFFFF; // for log
     bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
     bool tmBallPosReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
+    bool kickoffFirstTouchRequired = brain->data->requireKickoffFirstTouch && !brain->data->kickoffFirstTouchDone;
+    bool regularKickAllowed = (
+        (
+            (angleGoodForKick && (!brain->data->isFreekickKickingOff || kickoffFirstTouchRequired))
+            || reachedKickDir
+        )
+        && !avoidKick
+        && brain->data->ballDetected
+        && fabs(brain->data->ball.yawToRobot) < KICK_THETA_RANGE
+        && ball.range < KICK_RANGE
+    );
     if (!(iKnowBallPos || tmBallPosReliable))
     {
         newDecision = "find";
         color = 0xFFFFFFFF;
     } else if (
         enableAutoVisualKick &&
+        !kickoffFirstTouchRequired &&
         brain->data->tmImLead &&
         brain->data->tmMyCostRank == 0 &&
         !brain->tree->getEntry<bool>("ball_out") &&
@@ -1117,18 +1129,10 @@ NodeStatus StrikerDecide::tick() {
         newDecision = "chase";
         color = 0x0000FFFF;
     } 
-    else if (
-        (
-            (angleGoodForKick && !brain->data->isFreekickKickingOff) 
-            || reachedKickDir
-        )
-        && !avoidKick
-        && brain->data->ballDetected
-        && fabs(brain->data->ball.yawToRobot) < KICK_THETA_RANGE
-        && ball.range < KICK_RANGE
-    )
+    else if (regularKickAllowed)
     {
-        if (brain->data->kickType == "cross") newDecision = "cross";
+        if (kickoffFirstTouchRequired) newDecision = "kick";
+        else if (brain->data->kickType == "cross") newDecision = "cross";
         else { // kickType == kick
             double threatThreshold;
             brain->get_parameter("strategy.shoot.threat_threshold", threatThreshold);
@@ -1136,7 +1140,9 @@ NodeStatus StrikerDecide::tick() {
             else newDecision = "kick";
         }        
         color = 0x00FF00FF;
-        brain->data->isFreekickKickingOff = false; // 只要进一次 kick, 就不算是 kickoff 阶段了.
+        if (!kickoffFirstTouchRequired) {
+            brain->data->isFreekickKickingOff = false; // 只要进一次 kick, 就不算是 kickoff 阶段了.
+        }
     }
     else
     {
@@ -1333,6 +1339,15 @@ NodeStatus Kick::onRunning()
         brain->log->setTimeNow();
         brain->log->log("debug/Kick", rerun::TextLog(msg));
     };
+    auto completeKickoffFirstTouch = [=](const string &reason) {
+        if (brain->data->requireKickoffFirstTouch) {
+            brain->data->kickoffFirstTouchDone = true;
+            brain->data->requireKickoffFirstTouch = false;
+            brain->data->isKickingOff = false;
+            brain->data->isFreekickKickingOff = false;
+            log("开球首次普通 Kick 已完成: " + reason);
+        }
+    };
     bool enableAbort;
     brain->get_parameter("strategy.abort_kick_when_ball_moved", enableAbort);
     auto ballRange = brain->data->ball.range;
@@ -1344,6 +1359,7 @@ NodeStatus Kick::onRunning()
     const double BALL_LOST_THRESHOLD = 1000;  // ms
     if (ballRange > KICK_RANGE){
         log("球太远，终止踢球");
+        completeKickoffFirstTouch("ball too far");
         return NodeStatus::SUCCESS;
     }
     if (
@@ -1354,6 +1370,7 @@ NodeStatus Kick::onRunning()
         )
     ) {
         log("球已移动，终止踢球");
+        completeKickoffFirstTouch("ball moved");
         return NodeStatus::SUCCESS;
     }
     log(format("ballrange: %.1f, minRange: %.1f", ballRange, _minRange));
@@ -1396,6 +1413,7 @@ NodeStatus Kick::onRunning()
         msecs = msecs + brain->data->ball.range / speed * 1000;
         if (brain->msecsSince(_startTime) > msecs) { // 完成踢球动作
             brain->client->setVelocity(0, 0, 0);
+            completeKickoffFirstTouch("kick action finished");
             return NodeStatus::SUCCESS;
         }
         // else
@@ -1425,6 +1443,11 @@ rclcpp::Time RLVisionKick::_lastExitTime = rclcpp::Time(0, 0, RCL_ROS_TIME);
 
 NodeStatus RLVisionKick::onStart()
 {
+    if (brain->data->requireKickoffFirstTouch && !brain->data->kickoffFirstTouchDone) {
+        brain->data->tmImInVisualKick = false;
+        return NodeStatus::SUCCESS;
+    }
+
     _startTime = brain->get_clock()->now();
     _isDecelerating = false;
     _visionKickStarted = false;

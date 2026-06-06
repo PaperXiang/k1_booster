@@ -372,21 +372,43 @@ void Brain::handleSpecialStates() {
     string gameSubState = tree->getEntry<string>("gc_game_sub_state");
     bool isFreekickKickoffSide = tree->getEntry<bool>("gc_is_sub_state_kickoff_side");
     auto now = get_clock()->now();
+    static bool wasRegularKickoffSetup = false;
+    static bool wasFreekickKickoffSetup = false;
 
-    if (gameState == "SET" && isKickoffSide) {
+    bool regularKickoffSetup = gameState == "SET" && isKickoffSide;
+    if (regularKickoffSetup) {
+        if (!wasRegularKickoffSetup) {
+            data->requireKickoffFirstTouch = true;
+            data->kickoffFirstTouchDone = false;
+        }
         data->isKickingOff = true;
         data->kickoffStartTime = now;
     } else if (msecsSince(data->kickoffStartTime) > KICKOFF_DURATION * 1000) {
         data->isKickingOff = false;
+        if (data->requireKickoffFirstTouch && !data->isFreekickKickingOff) {
+            data->requireKickoffFirstTouch = false;
+            data->kickoffFirstTouchDone = true;
+        }
     }
+    wasRegularKickoffSetup = regularKickoffSetup;
 
-    if (gameState == "PLAY" && gameSubStateType == "FREE_KICK" && isFreekickKickoffSide) {
+    bool freekickKickoffSetup = gameState == "PLAY" && gameSubStateType == "FREE_KICK" && isFreekickKickoffSide;
+    if (freekickKickoffSetup) {
+        if (!wasFreekickKickoffSetup) {
+            data->requireKickoffFirstTouch = true;
+            data->kickoffFirstTouchDone = false;
+        }
         data->isFreekickKickingOff = true;
         data->freekickKickoffStartTime = now;
     } else if (msecsSince(data->freekickKickoffStartTime) > KICKOFF_DURATION * 1000) {
         data->isFreekickKickingOff = false;
         data->isDirectShoot = false;
+        if (data->requireKickoffFirstTouch && !data->isKickingOff) {
+            data->requireKickoffFirstTouch = false;
+            data->kickoffFirstTouchDone = true;
+        }
     }
+    wasFreekickKickoffSetup = freekickKickoffSetup;
 
     static int lastScore = 0;
     if (data->score > lastScore) {

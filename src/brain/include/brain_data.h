@@ -33,6 +33,8 @@ public:
     rclcpp::Time kickoffStartTime; // 发球开始的时间
     bool isFreekickKickingOff = false; // 是否在任意球发球的开始状态, 持续 10 秒
     rclcpp::Time freekickKickoffStartTime; // 任意球发球开始的时间
+    bool requireKickoffFirstTouch = false; // 开球后是否要求先用普通 Kick 触球
+    bool kickoffFirstTouchDone = true; // 本次开球周期是否已完成首次触球
     int liveCount = 0; // 已方存活机器人数量
     int oppoLiveCount = 0; // 对方存活机器人数量
     string realGameSubState; // 记录当前处于任意球, 门球等特殊状态. 因为 bb 上的 gc_game_sub_type 做了简化处理, 都看到任意球处理, 所以此处单独记录一下, 以便需要知道具体状态时使用.
