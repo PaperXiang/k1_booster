@@ -56,7 +56,7 @@ Pose BallPoseEstimator::EstimateByDepth(const Pose &p_eye2base, const DetectionR
     if (!use_depth_ || depth.empty()) return Pose();
 
     auto pose = EstimateByColor(p_eye2base, detection, cv::Mat());
-    if (cv::norm(pose.getTranslationVec()) > filter_distance_) return pose;
+    if (cv::norm(pose.getTranslationVec()) > filter_distance_) return Pose();
     std::cout << "基于颜色估计的球距离：" << cv::norm(pose.getTranslationVec()) << std::endl;
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);

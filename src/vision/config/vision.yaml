@@ -83,7 +83,7 @@ ball_motion_prediction:
   kalman_measurement_noise: 0.06
   kalman_initial_covariance: 1.0
 ball_pose_estimator:
-  use_depth: false
+  use_depth: true
   radius: 0.091
   down_sample_leaf_size: 0.01
   cluster_distance_threshold: 0.01

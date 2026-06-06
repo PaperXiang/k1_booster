@@ -510,18 +510,27 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         std::string position_source = "projection_fallback";
         std::string fallback_reason;
 
-        if (ground_plane_available) {
+        const bool is_ball = detection.class_name == "Ball";
+        if (is_ball && pose_estimator->use_depth_) {
+            Pose object_depth_pose = pose_estimator->EstimateByDepth(p_eye2base, detection, color, depth_float);
+            if (object_depth_pose != Pose()) {
+                pose_obj_by_depth = object_depth_pose;
+                position_source = "object_depth";
+            }
+        }
+
+        if (pose_obj_by_depth == Pose() && ground_plane_available) {
             cv::Point3f plane_position;
             cv::Point2f target_uv = get_ground_target_uv(detection);
             if (CalculatePositionWithCache(plane_position, ground_plane_cache_, p_eye2base, target_uv, intr_, &fallback_reason)) {
                 pose_obj_by_depth = Pose(plane_position.x, plane_position.y, plane_position.z, 0, 0, 0);
                 position_source = "ground_plane";
             }
-        } else if (ground_plane_config_.enable) {
+        } else if (pose_obj_by_depth == Pose() && ground_plane_config_.enable) {
             fallback_reason = ground_plane_cache_.last_failure_reason.empty() ? "ground_plane_unavailable" : ground_plane_cache_.last_failure_reason;
         }
 
-        if (pose_obj_by_depth == Pose() && pose_estimator->use_depth_) {
+        if (!is_ball && pose_obj_by_depth == Pose() && pose_estimator->use_depth_) {
             Pose object_depth_pose = pose_estimator->EstimateByDepth(p_eye2base, detection, color, depth_float);
             if (object_depth_pose != Pose()) {
                 pose_obj_by_depth = object_depth_pose;
