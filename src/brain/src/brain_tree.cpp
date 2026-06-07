@@ -1269,6 +1269,43 @@ NodeStatus StrikerDecide::tick() {
     double ballYaw = ball.yawToRobot;
     double ballX = ball.posToRobot.x;
     double ballY = ball.posToRobot.y;
+
+    const int playerId = brain->config->playerId;
+    const int playerCount = std::min(std::max(brain->config->numOfPlayers, 1), HL_MAX_NUM_PLAYERS);
+    const string myRole = brain->tree->getEntry<string>("player_role");
+    vector<int> nonGoalieAliveIds;
+    for (int id = 1; id <= playerCount; ++id) {
+        if (brain->data->penalty[id - 1] != PENALTY_NONE) continue;
+        string role = id == playerId ? myRole : brain->data->tmStatus[id - 1].role;
+        if (role == "goal_keeper") continue;
+        nonGoalieAliveIds.push_back(id);
+    }
+    if (std::find(nonGoalieAliveIds.begin(), nonGoalieAliveIds.end(), playerId) == nonGoalieAliveIds.end() && myRole != "goal_keeper") {
+        nonGoalieAliveIds.push_back(playerId);
+    }
+    std::sort(nonGoalieAliveIds.begin(), nonGoalieAliveIds.end());
+
+    int myNonGoalieRank = -1;
+    auto myNonGoalieIt = std::find(nonGoalieAliveIds.begin(), nonGoalieAliveIds.end(), playerId);
+    if (myNonGoalieIt != nonGoalieAliveIds.end()) {
+        myNonGoalieRank = static_cast<int>(std::distance(nonGoalieAliveIds.begin(), myNonGoalieIt));
+    }
+
+    const bool centerPairKickoffCrossPhase =
+        brain->data->isKickingOff
+        && brain->tree->getEntry<bool>("gc_is_kickoff_side")
+        && brain->data->kickoffVisionKickBlocked
+        && nonGoalieAliveIds.size() >= 2;
+    const bool forceKickoffCross =
+        centerPairKickoffCrossPhase
+        && myNonGoalieRank == 0;
+
+    if (forceKickoffCross && std::isfinite(ball.posToField.x) && std::isfinite(ball.posToField.y)) {
+        const Point receiverPoint{-1.10, 0.60, 0.0};
+        kickDir = atan2(receiverPoint.y - ball.posToField.y, receiverPoint.x - ball.posToField.x);
+        brain->data->kickDir = kickDir;
+        brain->data->kickType = "cross";
+    }
      
 
     const double goalpostMargin = 0.3; // 计算角度时为门柱让出的距离
@@ -1313,8 +1350,8 @@ NodeStatus StrikerDecide::tick() {
     bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 1.15;
     bool visualKickBallWindow = ballX > 0.25 && ballX < autoVisualKickEnableDistMax && fabs(ballY) < 1.00;
     bool visualKickYawWindow = fabs(ballYaw) < autoVisualKickEnableAngle * 1.2;
-    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, visualKickAligned: %d, visualKickBallWindow: %d, visualKickYawWindow: %d, tmMyCost: %.2f, tmMyCostRank: %d",
-        kickValue, threatLevel, fabs(deltaDir), visualKickAligned, visualKickBallWindow, visualKickYawWindow, brain->data->tmMyCost, brain->data->tmMyCostRank));
+    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, visualKickAligned: %d, visualKickBallWindow: %d, visualKickYawWindow: %d, tmMyCost: %.2f, tmMyCostRank: %d, kickoffCross: %d, nonGoalieRank: %d",
+        kickValue, threatLevel, fabs(deltaDir), visualKickAligned, visualKickBallWindow, visualKickYawWindow, brain->data->tmMyCost, brain->data->tmMyCostRank, forceKickoffCross, myNonGoalieRank));
      
 
     string newDecision;
@@ -1325,6 +1362,26 @@ NodeStatus StrikerDecide::tick() {
     {
         newDecision = "find";
         color = 0xFFFFFFFF;
+    } else if (forceKickoffCross) {
+        if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0)) {
+            newDecision = "chase";
+            color = 0x0000FFFF;
+        } else if (
+            reachedKickDir
+            && !avoidKick
+            && brain->data->ballDetected
+            && fabs(brain->data->ball.yawToRobot) < KICK_THETA_RANGE
+            && ball.range < KICK_RANGE
+        ) {
+            newDecision = "cross";
+            color = 0x00FF00FF;
+        } else {
+            newDecision = "adjust";
+            color = 0xFFFF00FF;
+        }
+    } else if (centerPairKickoffCrossPhase) {
+        newDecision = "assist";
+        color = 0x00FFFFFF;
     } else if (
         enableAutoVisualKick &&
         !brain->data->kickoffVisionKickBlocked &&
