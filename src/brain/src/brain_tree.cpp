@@ -3481,12 +3481,11 @@ NodeStatus GoToReadyPosition::tick()
     double distTolerance, thetaTolerance;
     getInput("dist_tolerance", distTolerance);
     getInput("theta_tolerance", thetaTolerance);
-    string role = brain->tree->getEntry<string>("player_role");
     bool isKickoff = brain->tree->getEntry<bool>("gc_is_kickoff_side");
     auto fd = brain->config->fieldDimensions;
 
     // default values, override with different conditions
-    double tx = 0, ty = 0, ttheta = 0; 
+    double tx = 0, ty = 0, ttheta = 0;
     double longRangeThreshold = 1.0;
     double turnThreshold = 0.4;
     double vxLimit, vyLimit;
@@ -3498,31 +3497,74 @@ NodeStatus GoToReadyPosition::tick()
     }
     double vthetaLimit = 1.5;
     bool avoidObstacle = true;
+    getInput("avoid_obstacle", avoidObstacle);
 
-    if (role == "striker") {
-        if (brain->data->myStrikerIDRank == 0) {
-            tx = isKickoff ? - fd.circleRadius : - fd.circleRadius * 2;
-            ty = 0.0;
-        } else if (brain->data->myStrikerIDRank == 1) {
-            tx = isKickoff ? - fd.circleRadius : - fd.circleRadius * 2;
-            ty = -1.5;
-        } else if (brain->data->myStrikerIDRank == 2) {
-            //tx = - fd.length / 2.0 + fd.penaltyDist;
-            //ty = fd.goalAreaWidth / 2.0;
-            tx = - fd.length / 2.0 + fd.penaltyAreaLength;
-            ty = fd.circleRadius;
-        } else if (brain->data->myStrikerIDRank == 3) {
-            tx = - fd.length / 2.0 + fd.penaltyDist;
-            ty = - fd.circleRadius - 1.0;
-            //ty = - fd.goalAreaWidth / 2.0;
+    const double ownGoalX = -fd.length / 2.0;
+    const int playerId = brain->config->playerId;
+    const int playerCount = std::min(std::max(brain->config->numOfPlayers, 1), HL_MAX_NUM_PLAYERS);
+
+    vector<int> aliveIds;
+    for (int id = 1; id <= playerCount; ++id) {
+        if (brain->data->penalty[id - 1] == PENALTY_NONE) {
+            aliveIds.push_back(id);
         }
-    } else if (role == "goal_keeper") {
-        tx = -fd.length / 2.0 + fd.goalAreaLength;
-        ty = 0;
-        ttheta = 0;
     }
 
-    brain->client->moveToPoseOnField2(tx, ty, ttheta, longRangeThreshold, turnThreshold, vxLimit, vyLimit, vthetaLimit, distTolerance / 1.5, distTolerance / 1.5, thetaTolerance, avoidObstacle);
+    if (std::find(aliveIds.begin(), aliveIds.end(), playerId) == aliveIds.end()) {
+        aliveIds.push_back(playerId);
+    }
+    std::sort(aliveIds.begin(), aliveIds.end());
+
+    int formationRank = 0;
+    auto myIt = std::find(aliveIds.begin(), aliveIds.end(), playerId);
+    if (myIt != aliveIds.end()) {
+        formationRank = static_cast<int>(std::distance(aliveIds.begin(), myIt));
+    }
+
+    vector<Pose2D> slots;
+    if (aliveIds.size() == 1) {
+        // One robot left: stay in front of our penalty area instead of over-pressing midfield.
+        tx = ownGoalX + fd.penaltyAreaLength + 0.8;
+        ty = 0.0;
+        ttheta = 0.0;
+    } else if (isKickoff) {
+        slots = {
+            {-0.60, -0.25, 0.0},
+            {-1.10,  0.60, 0.0},
+            {ownGoalX + fd.goalAreaLength, 0.0, 0.0},
+            {-3.20, -1.25, 0.0},
+            {-4.50,  1.50, 0.0},
+        };
+    } else {
+        const double pressY = 0.35;
+        const double circleStandMargin = 0.05; // Stay just outside the centre circle line.
+        const double pressRadius = fd.circleRadius + circleStandMargin;
+        const double pressX = -sqrt(max(0.0, pressRadius * pressRadius - pressY * pressY));
+        slots = {
+            {pressX,  pressY, atan2(-pressY, -pressX)},
+            {pressX, -pressY, atan2( pressY, -pressX)},
+            {ownGoalX + fd.goalAreaLength, 0.0, 0.0},
+            {-3.20,  1.25, 0.0},
+            {-3.20, -1.25, 0.0},
+        };
+    }
+
+    if (!slots.empty()) {
+        const int slotIndex = std::min(formationRank, static_cast<int>(slots.size()) - 1);
+        tx = slots[slotIndex].x;
+        ty = slots[slotIndex].y;
+        ttheta = slots[slotIndex].theta;
+    }
+
+    const double targetRange = norm(tx - brain->data->robotPoseToField.x, ty - brain->data->robotPoseToField.y);
+    bool stagedAvoidObstacle = avoidObstacle && targetRange > 0.8;
+    if (targetRange <= 0.8) {
+        vxLimit = std::min(vxLimit, 0.45);
+        vyLimit = std::min(vyLimit, 0.35);
+        vthetaLimit = std::min(vthetaLimit, 1.0);
+    }
+
+    brain->client->moveToPoseOnField2(tx, ty, ttheta, longRangeThreshold, turnThreshold, vxLimit, vyLimit, vthetaLimit, distTolerance / 1.5, distTolerance / 1.5, thetaTolerance, stagedAvoidObstacle);
     return NodeStatus::SUCCESS;
 }
 

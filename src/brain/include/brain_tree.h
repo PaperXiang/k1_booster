@@ -621,6 +621,7 @@ public:
         return {
             InputPort<double>("dist_tolerance", 0.5, ""), InputPort<double>("theta_tolerance", 0.1, ""),
             InputPort<double>("vx_limit", 1.2, ""), InputPort<double>("vy_limit", 0.5, ""),
+            InputPort<bool>("avoid_obstacle", true, ""),
         };
     }
     BT::NodeStatus tick() override;
