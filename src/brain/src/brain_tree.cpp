@@ -1283,13 +1283,7 @@ NodeStatus StrikerDecide::tick() {
     if (std::find(nonGoalieAliveIds.begin(), nonGoalieAliveIds.end(), playerId) == nonGoalieAliveIds.end() && myRole != "goal_keeper") {
         nonGoalieAliveIds.push_back(playerId);
     }
-    std::sort(nonGoalieAliveIds.begin(), nonGoalieAliveIds.end());
-
-    int myNonGoalieRank = -1;
-    auto myNonGoalieIt = std::find(nonGoalieAliveIds.begin(), nonGoalieAliveIds.end(), playerId);
-    if (myNonGoalieIt != nonGoalieAliveIds.end()) {
-        myNonGoalieRank = static_cast<int>(std::distance(nonGoalieAliveIds.begin(), myNonGoalieIt));
-    }
+    const bool iAmKickoffExecutor = brain->data->tmImLead && brain->data->tmMyCostRank == 0;
 
     const bool centerPairKickoffCrossPhase =
         brain->data->isKickingOff
@@ -1298,7 +1292,7 @@ NodeStatus StrikerDecide::tick() {
         && nonGoalieAliveIds.size() >= 2;
     const bool forceKickoffCross =
         centerPairKickoffCrossPhase
-        && myNonGoalieRank == 0;
+        && iAmKickoffExecutor;
 
     if (forceKickoffCross && std::isfinite(ball.posToField.x) && std::isfinite(ball.posToField.y)) {
         const Point receiverPoint{-1.10, 0.60, 0.0};
@@ -1350,8 +1344,8 @@ NodeStatus StrikerDecide::tick() {
     bool visualKickAligned = angleGoodForKick || reachedKickDir || fabs(deltaDir) < 1.15;
     bool visualKickBallWindow = ballX > 0.25 && ballX < autoVisualKickEnableDistMax && fabs(ballY) < 1.00;
     bool visualKickYawWindow = fabs(ballYaw) < autoVisualKickEnableAngle * 1.2;
-    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, visualKickAligned: %d, visualKickBallWindow: %d, visualKickYawWindow: %d, tmMyCost: %.2f, tmMyCostRank: %d, kickoffCross: %d, nonGoalieRank: %d",
-        kickValue, threatLevel, fabs(deltaDir), visualKickAligned, visualKickBallWindow, visualKickYawWindow, brain->data->tmMyCost, brain->data->tmMyCostRank, forceKickoffCross, myNonGoalieRank));
+    log(format("kickValue: %.1f, threatLevel: %.1f, visualKickDelta: %.2f, visualKickAligned: %d, visualKickBallWindow: %d, visualKickYawWindow: %d, tmMyCost: %.2f, tmMyCostRank: %d, kickoffCross: %d, kickoffExecutor: %d",
+        kickValue, threatLevel, fabs(deltaDir), visualKickAligned, visualKickBallWindow, visualKickYawWindow, brain->data->tmMyCost, brain->data->tmMyCostRank, forceKickoffCross, iAmKickoffExecutor));
      
 
     string newDecision;
