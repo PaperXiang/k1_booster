@@ -416,8 +416,10 @@ void Brain::handleSpecialStates() {
     }
 
     if (gameState == "PLAY" && gameSubStateType == "FREE_KICK" && isFreekickKickoffSide) {
+        if (!data->isFreekickKickingOff) {
+            data->freekickKickoffStartTime = now;
+        }
         data->isFreekickKickingOff = true;
-        data->freekickKickoffStartTime = now;
     } else if (msecsSince(data->freekickKickoffStartTime) > KICKOFF_DURATION * 1000) {
         data->isFreekickKickingOff = false;
         data->isDirectShoot = false;
@@ -457,11 +459,14 @@ void Brain::handleCooperation() {
     log_(format("ImAlive: %d, myCost: %.1f", data->tmImAlive, data->tmMyCost));
 
     
-    int gcAliveCount = 0; 
-    for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++)
+    int gcAliveCount = 0;
+    vector<int> gcAliveIds = {};
+    const int playerCount = std::min(std::max(numOfPlayers, 1), HL_MAX_NUM_PLAYERS);
+    for (int i = 0; i < playerCount; i++)
     {
         if (data->penalty[i] == PENALTY_NONE) {
             gcAliveCount++;
+            gcAliveIds.push_back(i + 1);
 
             int tmId = i + 1;
             if (tmId == config->playerId) continue;
@@ -482,6 +487,7 @@ void Brain::handleCooperation() {
             );
         }
     }
+    data->liveCount = gcAliveCount;
     log_(format("gcAliveCnt: %d", gcAliveCount));
 
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
@@ -557,17 +563,80 @@ void Brain::handleCooperation() {
     bool switchRole;
     get_parameter("strategy.cooperation.enable_role_switch", switchRole);
     if (switchRole) {
-        if (data->penalty[selfIdx] == PENALTY_NONE) { 
-            if (gcAliveCount < numOfPlayers) { 
-                log_("Not full team. I must be Striker");
-                tree->setEntry<string>("player_role", "striker"); 
+        const bool iAmAliveByGc = data->penalty[selfIdx] == PENALTY_NONE;
+        const bool defenseSecondPriority = data->oppoScore - data->score > 1;
+        vector<int> roleAliveIds = gcAliveIds;
+        std::sort(roleAliveIds.begin(), roleAliveIds.end());
+
+        const int activeRoleCount = static_cast<int>(roleAliveIds.size());
+        const string gameState = tree->getEntry<string>("gc_game_state");
+        const string gameSubStateType = tree->getEntry<string>("gc_game_sub_state_type");
+        const bool isSubStateKickoffSide = tree->getEntry<bool>("gc_is_sub_state_kickoff_side");
+        const bool defensiveRestart = gameState == "PLAY" && gameSubStateType != "NONE" && !isSubStateKickoffSide;
+        bool needGoalKeeper = false;
+        if (activeRoleCount >= 3) {
+            needGoalKeeper = true;
+        } else if (activeRoleCount == 2) {
+            needGoalKeeper = defensiveRestart || defenseSecondPriority;
+        }
+        int selectedGoalieId = -1;
+        auto isRoleCandidateAvailable = [&](int id) {
+            if (id < 1 || id > HL_MAX_NUM_PLAYERS) return false;
+            if (data->penalty[id - 1] != PENALTY_NONE) return false;
+            if (id == selfId) {
+                return tree->getEntry<bool>("odom_calibrated") || activeRoleCount == 1;
             }
-        } else { 
-            if (gcAliveCount == numOfPlayers - 1) { 
-                log_("I am only on under penalty, I must be goal keeper");
-                tree->setEntry<string>("player_role", "goal_keeper"); 
+            if (!config->enableCom) return true;
+            return data->tmStatus[id - 1].isAlive && msecsSince(data->tmStatus[id - 1].timeLastCom) < COM_TIMEOUT;
+        };
+
+        if (needGoalKeeper) {
+            // C方案: 原守门员优先；不可用时，由通信在线且离己方球门最近的队员自动补位。
+            for (int id : roleAliveIds) {
+                if (!isRoleCandidateAvailable(id)) continue;
+                string role = id == selfId ? config->playerRole : data->tmStatus[id - 1].role;
+                if (role == "goal_keeper") {
+                    selectedGoalieId = id;
+                    break;
+                }
             }
-    
+            if (selectedGoalieId < 0) {
+                const double ownGoalX = -config->fieldDimensions.length / 2.0;
+                double bestDistToGoal = 1e9;
+                for (int id : roleAliveIds) {
+                    if (!isRoleCandidateAvailable(id)) continue;
+                    Pose2D pose = id == selfId ? data->robotPoseToField : data->tmStatus[id - 1].robotPoseToField;
+                    if (!std::isfinite(pose.x) || !std::isfinite(pose.y)) continue;
+                    double distToGoal = norm(pose.x - ownGoalX, pose.y);
+                    if (distToGoal < bestDistToGoal) {
+                        bestDistToGoal = distToGoal;
+                        selectedGoalieId = id;
+                    }
+                }
+            }
+            if (selectedGoalieId < 0) {
+                for (int id : roleAliveIds) {
+                    if (isRoleCandidateAvailable(id)) {
+                        selectedGoalieId = id;
+                        break;
+                    }
+                }
+            }
+            if (selectedGoalieId < 0 && !roleAliveIds.empty()) {
+                selectedGoalieId = roleAliveIds.front();
+            }
+        }
+
+        if (iAmAliveByGc) {
+            string newRole = (needGoalKeeper && selfId == selectedGoalieId) ? "goal_keeper" : "striker";
+            tree->setEntry<string>("player_role", newRole);
+            log_(format(
+                "Dynamic role: %s, selectedGoalie: %d, alive: %d, score: %d-%d, defensePriority: %d, defensiveRestart: %d",
+                newRole.c_str(), selectedGoalieId, activeRoleCount, data->score, data->oppoScore, defenseSecondPriority ? 2 : 3, defensiveRestart ? 1 : 0
+            ));
+        } else if (gcAliveCount == numOfPlayers - 1 && config->playerRole == "goal_keeper") {
+            tree->setEntry<string>("player_role", "goal_keeper");
+            log_("I am under penalty as configured goalkeeper, keep role for re-entry");
         }
     }
 
@@ -1320,13 +1389,20 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
         "PLAY",    // 正常比赛
         "END"      // 比赛结束
     };
-    string gameState = gameStateMap[static_cast<int>(msg.state)];
+    int gameStateIdx = static_cast<int>(msg.state);
+    string gameState = "INITIAL";
+    if (gameStateIdx >= 0 && gameStateIdx < static_cast<int>(gameStateMap.size())) {
+        gameState = gameStateMap[gameStateIdx];
+    } else {
+        prtErr(format("收到未知裁判机一级状态: %d", gameStateIdx));
+    }
     tree->setEntry<string>("gc_game_state", gameState);
     bool isKickOffSide = (msg.kick_off_team == config->teamId); // 我方是否是开球方
     tree->setEntry<bool>("gc_is_kickoff_side", isKickOffSide);
 
     // 处理比赛的二级状态
     string gameSubStateType;
+    data->isDirectShoot = false;
     switch (static_cast<int>(msg.secondary_state)) {
         case 0:
             gameSubStateType = "NONE";
@@ -1372,10 +1448,17 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
             break;
         default:
             gameSubStateType = "FREE_KICK";
+            data->realGameSubState = "UNKNOWN";
             break;
     }
     vector<string> gameSubStateMap = {"STOP", "GET_READY", "SET"};                               // STOP: 停下来; -> GET_READY: 移动到进攻或防守位置; -> SET: 站住不动
-    string gameSubState = gameSubStateMap[static_cast<int>(msg.secondary_state_info[1])];
+    int gameSubStateIdx = static_cast<int>(msg.secondary_state_info[1]);
+    string gameSubState = "STOP";
+    if (gameSubStateIdx >= 0 && gameSubStateIdx < static_cast<int>(gameSubStateMap.size())) {
+        gameSubState = gameSubStateMap[gameSubStateIdx];
+    } else {
+        prtErr(format("收到未知裁判机二级阶段: %d", gameSubStateIdx));
+    }
     tree->setEntry<string>("gc_game_sub_state_type", gameSubStateType);
     tree->setEntry<string>("gc_game_sub_state", gameSubState);
     bool isSubStateKickOffSide = (static_cast<int>(msg.secondary_state_info[0]) == config->teamId); // 在二级状态下, 我方是否是开球方. 例如, 当前二级状态为任意球, 我方是否是开任意球的一方
@@ -1428,7 +1511,13 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     // cout << "penalty: " << data->penalty[0] << " " << data->penalty[1] << " " << data->penalty[2] << " " << data->penalty[3] << endl;
     // cout << "oppo penalty: " << data->oppoPenalty[0] << " " << data->oppoPenalty[1] << " " << data->oppoPenalty[2] << " " << data->oppoPenalty[3] << endl;
     bool lastIsUnderPenalty = tree->getEntry<bool>("gc_is_under_penalty");
-    bool isUnderPenalty = (data->penalty[config->playerId - 1] != PENALTY_NONE); // 当前 robot 是否被判罚中
+    const int playerIdx = config->playerId - 1;
+    bool isUnderPenalty = true;
+    if (playerIdx >= 0 && playerIdx < HL_MAX_NUM_PLAYERS) {
+        isUnderPenalty = data->penalty[playerIdx] != PENALTY_NONE; // 当前 robot 是否被判罚中
+    } else {
+        prtErr(format("非法 player_id=%d，按被罚状态处理", config->playerId));
+    }
     tree->setEntry<bool>("gc_is_under_penalty", isUnderPenalty);
     if (isUnderPenalty && !lastIsUnderPenalty) tree->setEntry<bool>("odom_calibrated", false); // 被判罚了, 则需要重新进场, 因此需要重新定位
 

@@ -28,14 +28,15 @@
                   <!-- <StepOnSpot /> -->
                </ReactiveSequence>
                <Sequence _while="!wait_for_opponent_kickoff" name="正常比赛">
+                  <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
+                  <GoalieDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
+                  <GoalieBlock _while="decision == 'block'" vx_limit="1.5" vy_limit="0.8" vtheta_limit="2.4" lateral_vx_limit="0.25" />
+                  <GoToReadyPosition _while="decision=='find' &amp;&amp; !ball_location_known" vx_limit="0.7" />
+                  <GoToGoalBlockingPosition _while="decision=='find' &amp;&amp; ball_location_known" theta_tolerance="0.2" />
+
                   <Sequence _while="goalie_mode=='attack'">
-                     <!-- <CamTrackBall /> -->
-                     <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
-                     <GoalieDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
-                     <GoToGoalBlockingPosition _while="decision=='find'" theta_tolerance="0.2" />
                      <!-- <SubTree ID="FindBall" _while="decision=='find'" _autoremap="true" /> -->
 
-                     <GoalieBlock _while="decision == 'block'" vx_limit="1.5" vy_limit="0.8" vtheta_limit="2.4" lateral_vx_limit="0.25" />
                      <GoToGoalBlockingPosition _while="decision == 'retreat'" theta_tolerance="0.2" />
                      <!-- <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.4"  vtheta_limit="1.0"  dist="0.8"/> -->
                      <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.8"  vtheta_limit="2.4"  dist="0.4" safe_dist="0.6" />
@@ -48,9 +49,8 @@
                      <!-- RLVisionKick node removed in open-source version -->
                   </Sequence>
                   <ReactiveSequence _while="goalie_mode == 'guard'">
-                     <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                      <GoToReadyPosition _while="!ball_location_known" vx_limit="0.7" />
-                     <GoToGoalBlockingPosition _while="ball_location_known" theta_tolerance="0.2" />
+                     <GoToGoalBlockingPosition _while="ball_location_known &amp;&amp; decision != 'block'" theta_tolerance="0.2" />
                   </ReactiveSequence>
 
                </Sequence>

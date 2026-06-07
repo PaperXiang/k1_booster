@@ -27,7 +27,7 @@ public:
     template <typename T>
     inline T getEntry(const string &key)
     {
-        T value;
+        T value{};
         [[maybe_unused]] auto res = tree.rootBlackboard()->get<T>(key, value);
         return value;
     }
@@ -116,6 +116,9 @@ private:
     bool _hasGoalieBallSample = false;
     Point _lastGoalieBallPosToField{0.0, 0.0, 0.0};
     rclcpp::Time _lastGoalieBallSampleTime;
+    bool _hasTmGoalieBallSample = false;
+    Point _lastTmGoalieBallPosToField{0.0, 0.0, 0.0};
+    rclcpp::Time _lastTmGoalieBallSampleTime;
 };
 
 class GoalieBlock : public SyncActionNode

@@ -104,7 +104,7 @@ void BrainTree::initEntry()
     setEntry<bool>("ball_out", false);
     setEntry<bool>("track_ball", true);
     setEntry<bool>("odom_calibrated", false);
-    setEntry<string>("decision", "");
+    setEntry<string>("decision", "find");
     setEntry<string>("defend_decision", "chase");
     setEntry<double>("ball_range", 0);
 
@@ -560,6 +560,10 @@ NodeStatus GoToFreekickPosition::onRunning() {
     const auto robotPose = brain->data->robotPoseToField;
     const double ownGoalX = -fd.length / 2.0;
     const double oppGoalX = fd.length / 2.0;
+    bool soloDefensiveGoalie = false;
+    auto isFinitePoint = [](const Point &p) {
+        return std::isfinite(p.x) && std::isfinite(p.y);
+    };
 
     auto keepAwayFromBall = [](Pose2D &pose, const Point &ball, double minDist) {
         double dx = pose.x - ball.x;
@@ -627,10 +631,14 @@ NodeStatus GoToFreekickPosition::onRunning() {
     };
 
     const double kickDir = brain->data->kickDir;
-    const double defenseDir = atan2(ballPos.y, ballPos.x + fd.length / 2.0);
     // 和 assist 对齐：freekick 按 tmMyCostRank 分工，不再按前锋序号。
     const int rank = brain->data->tmMyCostRank;
     if (side == "attack") {
+        if (!isFinitePoint(ballPos)) {
+            brain->client->setVelocity(0, 0, 0);
+            return NodeStatus::RUNNING;
+        }
+        const double defenseDir = atan2(ballPos.y, ballPos.x + fd.length / 2.0);
         double attackDist = 0.7;
         getInput("attack_dist", attackDist);
 
@@ -658,12 +666,16 @@ NodeStatus GoToFreekickPosition::onRunning() {
         const double stableMsec = 800.0;
         const double wallSpacing = 0.55;
         auto bestBall = pickRestartBall();
-        if (!bestBall.valid) {
+        if (!bestBall.valid || !isFinitePoint(bestBall.pos)) {
             brain->client->setVelocity(0, 0, 0);
             return NodeStatus::RUNNING;
         }
 
         ballPos = bestBall.pos;
+        if (fabs(ballPos.x) > fd.length / 2.0 + 1.0 || fabs(ballPos.y) > fd.width / 2.0 + 1.0) {
+            brain->client->setVelocity(0, 0, 0);
+            return NodeStatus::RUNNING;
+        }
         auto now = brain->get_clock()->now();
         if (!_hasFreekickBallRef) {
             _freekickBallRef = ballPos;
@@ -679,11 +691,31 @@ NodeStatus GoToFreekickPosition::onRunning() {
         const bool ballCloseEnough = norm(ballPos.x - robotPose.x, ballPos.y - robotPose.y) < reliableBallRange;
         const double aimDir = atan2(-ballPos.y, ownGoalX - ballPos.x);
 
-        vector<int> wallIds;
+        int aliveCount = 0;
         const int playerCount = std::min(std::max(brain->config->numOfPlayers, 1), HL_MAX_NUM_PLAYERS);
+        for (int id = 1; id <= playerCount; ++id) {
+            if (brain->data->penalty[id - 1] == PENALTY_NONE) ++aliveCount;
+        }
+
+        if (aliveCount == 1) {
+            soloDefensiveGoalie = true;
+            const double goalieDistToGoalline = 0.25;
+            targetPose.x = ownGoalX + goalieDistToGoalline;
+            const double denomToGoal = ballPos.x - ownGoalX;
+            if (denomToGoal < goalieDistToGoalline || fabs(denomToGoal) < 1e-3) {
+                targetPose.y = ballPos.y > 0 ? fd.goalWidth / 4.0 : -fd.goalWidth / 4.0;
+            } else {
+                targetPose.y = ballPos.y * goalieDistToGoalline / denomToGoal;
+                targetPose.y = cap(targetPose.y, fd.penaltyAreaWidth / 2.0, -fd.penaltyAreaWidth / 2.0);
+            }
+            targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
+        } else {
+
+        vector<int> wallIds;
         const string myRole = brain->tree->getEntry<string>("player_role");
         for (int id = 1; id <= playerCount; ++id) {
             if (brain->data->penalty[id - 1] != PENALTY_NONE) continue;
+            if (id != brain->config->playerId && brain->config->enableCom && !brain->data->tmStatus[id - 1].isAlive) continue;
             string role = id == brain->config->playerId ? myRole : brain->data->tmStatus[id - 1].role;
             if (role == "goal_keeper") continue;
             wallIds.push_back(id);
@@ -692,33 +724,104 @@ NodeStatus GoToFreekickPosition::onRunning() {
             wallIds.push_back(brain->config->playerId);
         }
         std::sort(wallIds.begin(), wallIds.end());
+        if (std::find(wallIds.begin(), wallIds.end(), brain->config->playerId) == wallIds.end()) {
+            brain->client->setVelocity(0, 0, 0);
+            return NodeStatus::SUCCESS;
+        }
 
-        int wallRank = 0;
-        auto myWallIt = std::find(wallIds.begin(), wallIds.end(), brain->config->playerId);
-        if (myWallIt != wallIds.end()) wallRank = static_cast<int>(std::distance(wallIds.begin(), myWallIt));
+        auto playerPose = [&](int id) {
+            return id == brain->config->playerId ? robotPose : brain->data->tmStatus[id - 1].robotPoseToField;
+        };
+
+        vector<Pose2D> defensePoses;
         const int wallCount = std::max(1, static_cast<int>(wallIds.size()));
 
         if (!ballStable || !ballCloseEnough) {
-            targetPose.x = ballPos.x + observeDist * cos(aimDir);
-            targetPose.y = ballPos.y + observeDist * sin(aimDir);
+            const double observeDir = aimDir + M_PI / 2.0;
+            for (int i = 0; i < wallCount; ++i) {
+                const double offset = (i - (wallCount - 1) / 2.0) * wallSpacing;
+                defensePoses.push_back({
+                    ballPos.x + observeDist * cos(aimDir) + offset * cos(observeDir),
+                    ballPos.y + observeDist * sin(aimDir) + offset * sin(observeDir),
+                    0.0
+                });
+            }
         } else {
             const double wallDir = aimDir + M_PI / 2.0;
-            const double offset = (wallRank - (wallCount - 1) / 2.0) * wallSpacing;
-            targetPose.x = ballPos.x + minRestartDist * cos(aimDir) + offset * cos(wallDir);
-            targetPose.y = ballPos.y + minRestartDist * sin(aimDir) + offset * sin(wallDir);
+            const int frontCount = wallCount <= 2 ? wallCount : std::min(3, std::max(1, (wallCount + 1) / 2));
+            const int backCount = wallCount - frontCount;
+            for (int i = 0; i < frontCount; ++i) {
+                const double offset = (i - (frontCount - 1) / 2.0) * wallSpacing;
+                defensePoses.push_back({
+                    ballPos.x + minRestartDist * cos(aimDir) + offset * cos(wallDir),
+                    ballPos.y + minRestartDist * sin(aimDir) + offset * sin(wallDir),
+                    0.0
+                });
+            }
+            for (int i = 0; i < backCount; ++i) {
+                const double backSpacing = 0.70;
+                const double offset = (i - (backCount - 1) / 2.0) * backSpacing;
+                defensePoses.push_back({
+                    ballPos.x + (minRestartDist + 0.75) * cos(aimDir) + offset * cos(wallDir),
+                    ballPos.y + (minRestartDist + 0.75) * sin(aimDir) + offset * sin(wallDir),
+                    0.0
+                });
+            }
+        }
+
+        vector<pair<int, int>> assignments;
+        vector<bool> usedIds(wallIds.size(), false);
+        vector<bool> usedPoses(defensePoses.size(), false);
+        for (size_t n = 0; n < wallIds.size() && n < defensePoses.size(); ++n) {
+            double bestCost = 1e9;
+            int bestIdIdx = -1;
+            int bestPoseIdx = -1;
+            for (size_t i = 0; i < wallIds.size(); ++i) {
+                if (usedIds[i]) continue;
+                Pose2D pose = playerPose(wallIds[i]);
+                for (size_t j = 0; j < defensePoses.size(); ++j) {
+                    if (usedPoses[j]) continue;
+                    double cost = norm(pose.x - defensePoses[j].x, pose.y - defensePoses[j].y);
+                    if (cost < bestCost) {
+                        bestCost = cost;
+                        bestIdIdx = static_cast<int>(i);
+                        bestPoseIdx = static_cast<int>(j);
+                    }
+                }
+            }
+            if (bestIdIdx < 0 || bestPoseIdx < 0) break;
+            usedIds[bestIdIdx] = true;
+            usedPoses[bestPoseIdx] = true;
+            assignments.push_back({wallIds[bestIdIdx], bestPoseIdx});
+        }
+
+        int myPoseIdx = 0;
+        for (const auto &assignment : assignments) {
+            if (assignment.first == brain->config->playerId) {
+                myPoseIdx = assignment.second;
+                break;
+            }
+        }
+        if (!defensePoses.empty()) {
+            targetPose = defensePoses[std::min(myPoseIdx, static_cast<int>(defensePoses.size()) - 1)];
         }
         targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
         keepAwayFromBall(targetPose, ballPos, minRestartDist);
+        }
     }
 
     // 场地约束（对齐 assist 思路）：保证目标点始终在可行区域。
     targetPose.x = cap(targetPose.x, oppGoalX - 0.3, ownGoalX + 0.3);
     targetPose.y = cap(targetPose.y, fd.width / 2.0 - 0.6, -fd.width / 2.0 + 0.6);
-    if (side == "defense") {
+    if (side == "defense" && !soloDefensiveGoalie) {
         keepAwayFromBall(targetPose, ballPos, 1.60);
         targetPose.x = cap(targetPose.x, oppGoalX - 0.3, ownGoalX + 0.3);
         targetPose.y = cap(targetPose.y, fd.width / 2.0 - 0.6, -fd.width / 2.0 + 0.6);
         keepAwayFromBall(targetPose, ballPos, 1.60);
+        targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
+    } else if (side == "defense") {
+        targetPose.x = cap(targetPose.x, oppGoalX - 0.3, ownGoalX + 0.3);
+        targetPose.y = cap(targetPose.y, fd.width / 2.0 - 0.6, -fd.width / 2.0 + 0.6);
         targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
     } else if (rank >= 2) {
         // 对 rank>=2 的固定后场位，朝向球更稳定。
@@ -818,7 +921,13 @@ NodeStatus GoToGoalBlockingPosition::tick() {
     double distToGoalline = getInput<double>("dist_to_goalline").value();
 
     auto fd = brain->config->fieldDimensions;
-    auto ballPos = brain->data->ball.posToField;
+    const bool iKnowBall = brain->tree->getEntry<bool>("ball_location_known");
+    const bool tmBallReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
+    auto ballPos = iKnowBall ? brain->data->ball.posToField : brain->data->tmBall.posToField;
+    if (!(iKnowBall || tmBallReliable) || !std::isfinite(ballPos.x) || !std::isfinite(ballPos.y)) {
+        brain->client->setVelocity(0, 0, 0);
+        return NodeStatus::SUCCESS;
+    }
     auto robotPose = brain->data->robotPoseToField;
 
     string curRole = brain->tree->getEntry<string>("player_role");
@@ -826,19 +935,22 @@ NodeStatus GoToGoalBlockingPosition::tick() {
     Pose2D targetPose;
     targetPose.x = curRole == "striker" ? (std::max(- fd.length / 2.0 + distToGoalline, ballPos.x - 1.5))
             : (- fd.length / 2.0 + distToGoalline);
-    if (ballPos.x + fd.length / 2.0 < distToGoalline) {
+    const double denomToGoal = ballPos.x + fd.length / 2.0;
+    if (denomToGoal < distToGoalline || fabs(denomToGoal) < 1e-3) {
         targetPose.y = curRole == "striker" ? (ballPos.y > 0 ? fd.goalWidth / 2.0 : -fd.goalWidth / 2.0)
             : (ballPos.y > 0 ? fd.goalWidth / 4.0 : -fd.goalWidth / 4.0);
     } else {
-        targetPose.y = ballPos.y * distToGoalline / (ballPos.x + fd.length / 2.0);
+        targetPose.y = ballPos.y * distToGoalline / denomToGoal;
         targetPose.y = curRole == "striker" ? (cap(targetPose.y, fd.goalWidth / 2.0, -fd.goalWidth / 2.0))
             : (cap(targetPose.y, fd.penaltyAreaWidth/ 2.0, -fd.penaltyAreaWidth / 2.0));
     }
 
+    const double ballYaw = toPInPI(atan2(ballPos.y - robotPose.y, ballPos.x - robotPose.x) - robotPose.theta);
+
     double dist = norm(targetPose.x - robotPose.x, targetPose.y - robotPose.y);
     if ( // 认为到达了目标位置
         dist < distTolerance
-        && fabs(brain->data->ball.yawToRobot) < thetaTolerance
+        && fabs(ballYaw) < thetaTolerance
     ) {
         brain->client->setVelocity(0, 0, 0);
         return NodeStatus::SUCCESS;
@@ -847,7 +959,7 @@ NodeStatus GoToGoalBlockingPosition::tick() {
     auto targetPose_r = brain->data->field2robot(targetPose);
     double vx = targetPose_r.x;
     double vy = targetPose_r.y;
-    double vtheta = brain->data->ball.yawToRobot * 2.0; // 后面的乘数越大, 转身越快
+    double vtheta = ballYaw * 2.0; // 后面的乘数越大, 转身越快
 
 
     double vxLimit, vyLimit;
@@ -1343,8 +1455,24 @@ NodeStatus GoalieDecide::tick()
         _lastGoalieBallPosToField = ballPos;
         _lastGoalieBallSampleTime = now;
         _hasGoalieBallSample = true;
+        _hasTmGoalieBallSample = false;
+    } else if (hasBallPos && tmBallPosReliable) {
+        if (_hasTmGoalieBallSample) {
+            double dt = (now - _lastTmGoalieBallSampleTime).seconds();
+            double moveDist = norm(ballPos.x - _lastTmGoalieBallPosToField.x, ballPos.y - _lastTmGoalieBallPosToField.y);
+            if (dt > 0.04 && dt < 1.0) {
+                ballSpeed = moveDist / dt;
+                vxBall = (ballPos.x - _lastTmGoalieBallPosToField.x) / dt;
+                vyBall = (ballPos.y - _lastTmGoalieBallPosToField.y) / dt;
+                speedReliable = true;
+            }
+        }
+        _lastTmGoalieBallPosToField = ballPos;
+        _lastTmGoalieBallSampleTime = now;
+        _hasTmGoalieBallSample = true;
     } else if (!hasBallPos) {
         _hasGoalieBallSample = false;
+        _hasTmGoalieBallSample = false;
     }
 
     const double ownGoalX = -fd.length / 2.0;
@@ -1357,6 +1485,9 @@ NodeStatus GoalieDecide::tick()
     const double goalieReactionSec = 0.15;
     const double lateralSpeed = std::max(0.1, brain->config->vyLimit);
     const double rushSpeed = std::max(0.2, brain->config->vxLimit * 0.85);
+    const bool ballInGoalieActiveArea = hasBallPos
+        && ballPos.x < ownGoalX + fd.penaltyAreaLength + 1.0
+        && fabs(ballPos.y) < fd.penaltyAreaWidth / 2.0 + 0.5;
 
     bool goalThreat = false;
     Point2D bestBlock{guardX, 0.0};
@@ -1400,7 +1531,7 @@ NodeStatus GoalieDecide::tick()
 
     const bool fastBall = speedReliable && ballSpeed >= fastBallSpeed;
     const bool highSpeedThreat = goalThreat && fastBall;
-    const bool nearSlowClear = hasBallPos && ballRange < 0.55 && (!speedReliable || ballSpeed < clearSpeedLimit);
+    const bool nearSlowClear = ballInGoalieActiveArea && ballRange < 0.55 && (!speedReliable || ballSpeed < clearSpeedLimit);
 
     string newDecision;
     auto color = 0xFFFFFFFF; // for log
@@ -1425,9 +1556,15 @@ NodeStatus GoalieDecide::tick()
         newDecision = "retreat";
         color = 0xFF00FFFF;
     }
+    else if (!ballInGoalieActiveArea && lastDecision != "block")
+    {
+        newDecision = "retreat";
+        color = 0xFF00FFFF;
+    }
     else if (
                 enableAutoVisualKick &&
                 !fastBall &&
+                ballInGoalieActiveArea &&
                 brain->data->ball.range < autoVisualKickEnableDistMax &&
                 brain->data->ball.range > autoVisualKickEnableDistMin &&
                 fabs(brain->data->ball.yawToRobot) < autoVisualKickEnableAngle / 2 &&
@@ -1436,7 +1573,7 @@ NodeStatus GoalieDecide::tick()
         newDecision = "kick";
         color = 0xFF00FFFF;
     }
-    else if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))
+    else if (ballInGoalieActiveArea && ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))
     {
         newDecision = "chase";
         color = 0x00FF00FF;
@@ -1452,6 +1589,13 @@ NodeStatus GoalieDecide::tick()
         color = 0x00FFFFFF;
     }
 
+    if (newDecision != "block") {
+        brain->data->goalieBlockActive = false;
+        brain->data->goalieBlockMode = "";
+        brain->data->goalieBlockBallSpeed = 0.0;
+        brain->data->goalieBlockBallArrivalSec = 0.0;
+    }
+
     setOutput("decision_out", newDecision);
     brain->log->logToScreen("tree/Decide",
                             format("决策: %s 球距: %.2f 球偏角: %.2f 踢球方向: %.2f 人球方向: %.2f 角度合适: %d 球速: %.2f 封堵: %s 到达: %.2f",
@@ -1462,7 +1606,8 @@ NodeStatus GoalieDecide::tick()
 
 NodeStatus GoalieBlock::tick()
 {
-    if (!brain->data->goalieBlockActive) {
+    if (!brain->data->goalieBlockActive || brain->msecsSince(brain->data->goalieBlockUpdateTime) > 500.0) {
+        brain->data->goalieBlockActive = false;
         brain->client->setVelocity(0, 0, 0);
         return NodeStatus::SUCCESS;
     }
@@ -1496,6 +1641,17 @@ NodeStatus GoalieBlock::tick()
         vy = cap(vy, vyLimit, -vyLimit);
     }
     vtheta = cap(vtheta, vthetaLimit, -vthetaLimit);
+
+    // Fast goal blocking should not route around obstacles, but still avoid hard collisions.
+    double moveDir = atan2(vy, vx);
+    double obstacleDist = brain->distToObstacle(moveDir);
+    if (obstacleDist < 0.35) {
+        vx = 0.0;
+        vy = 0.0;
+    } else if (obstacleDist < 0.55) {
+        vx *= 0.4;
+        vy *= 0.4;
+    }
 
     if (dist < distTolerance && fabs(vtheta) < 0.25) {
         brain->client->setVelocity(0, 0, 0);
@@ -3778,10 +3934,19 @@ NodeStatus GoToReadyPosition::tick()
     }
     std::sort(aliveIds.begin(), aliveIds.end());
 
-    int formationRank = 0;
-    auto myIt = std::find(aliveIds.begin(), aliveIds.end(), playerId);
-    if (myIt != aliveIds.end()) {
-        formationRank = static_cast<int>(std::distance(aliveIds.begin(), myIt));
+    const string myRole = brain->tree->getEntry<string>("player_role");
+    auto roleOf = [&](int id) {
+        return id == playerId ? myRole : brain->data->tmStatus[id - 1].role;
+    };
+
+    bool hasGoalKeeper = false;
+    vector<int> nonGoalieAliveIds;
+    for (int id : aliveIds) {
+        if (roleOf(id) == "goal_keeper") {
+            hasGoalKeeper = true;
+        } else {
+            nonGoalieAliveIds.push_back(id);
+        }
     }
 
     vector<Pose2D> slots;
@@ -3813,7 +3978,20 @@ NodeStatus GoToReadyPosition::tick()
     }
 
     if (!slots.empty()) {
-        const int slotIndex = std::min(formationRank, static_cast<int>(slots.size()) - 1);
+        const int goalieSlotIndex = 2;
+        int slotIndex = 0;
+        if (myRole == "goal_keeper" && static_cast<int>(slots.size()) > goalieSlotIndex) {
+            slotIndex = goalieSlotIndex;
+        } else {
+            const vector<int> nonGoalieSlots = hasGoalKeeper ? vector<int>{0, 1, 3, 4} : vector<int>{0, 1, 2, 3, 4};
+            int formationRank = 0;
+            auto myIt = std::find(nonGoalieAliveIds.begin(), nonGoalieAliveIds.end(), playerId);
+            if (myIt != nonGoalieAliveIds.end()) {
+                formationRank = static_cast<int>(std::distance(nonGoalieAliveIds.begin(), myIt));
+            }
+            slotIndex = nonGoalieSlots[std::min(formationRank, static_cast<int>(nonGoalieSlots.size()) - 1)];
+            slotIndex = std::min(slotIndex, static_cast<int>(slots.size()) - 1);
+        }
         tx = slots[slotIndex].x;
         ty = slots[slotIndex].y;
         ttheta = slots[slotIndex].theta;
