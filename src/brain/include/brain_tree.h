@@ -113,6 +113,25 @@ public:
     BT::NodeStatus tick() override;
 private:
     Brain *brain;
+    bool _hasGoalieBallSample = false;
+    Point _lastGoalieBallPosToField{0.0, 0.0, 0.0};
+    rclcpp::Time _lastGoalieBallSampleTime;
+};
+
+class GoalieBlock : public SyncActionNode
+{
+public:
+    GoalieBlock(const std::string &name, const NodeConfig &config, Brain *_brain) : SyncActionNode(name, config), brain(_brain) {}
+    static BT::PortsList providedPorts() {
+        return {
+            InputPort<double>("dist_tolerance", 0.18, ""),
+            InputPort<double>("vx_limit", 1.5, ""), InputPort<double>("vy_limit", 0.8, ""), InputPort<double>("vtheta_limit", 2.4, ""),
+            InputPort<double>("lateral_vx_limit", 0.25, ""),
+        };
+    }
+    BT::NodeStatus tick() override;
+private:
+    Brain *brain;
 };
 
 class CamTrackBall : public SyncActionNode

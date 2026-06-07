@@ -69,6 +69,7 @@ void BrainTree::init()
     REGISTER_BUILDER(MoveToPoseOnField)
     REGISTER_BUILDER(GoBackInField)
     REGISTER_BUILDER(GoalieDecide)
+    REGISTER_BUILDER(GoalieBlock)
     REGISTER_BUILDER(DecideCheckBehind)
     REGISTER_BUILDER(WaveHand)
     REGISTER_BUILDER(MoveHead)
@@ -1295,54 +1296,144 @@ NodeStatus StrikerDecide::tick() {
 
 NodeStatus GoalieDecide::tick()
 {
-    // 读取和处理参数
     double chaseRangeThreshold;
     getInput("chase_threshold", chaseRangeThreshold);
     string lastDecision, position;
     getInput("decision_in", lastDecision);
 
-    double kickDir = atan2(brain->data->ball.posToField.y, brain->data->ball.posToField.x + brain->config->fieldDimensions.length / 2);
-    double dir_rb_f = brain->data->robotBallAngleToField; // 机器人到球, field 坐标系中的方向
-    auto goalPostAngles = brain->getGoalPostAngles(0.3);
-    double theta_l = goalPostAngles[0]; // 球到左边门柱的角度(我们的左)
-    double theta_r = goalPostAngles[1]; // 球到右边门柱的角度
+    auto fd = brain->config->fieldDimensions;
+    auto now = brain->get_clock()->now();
+    bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
+    bool tmBallPosReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
+    bool hasBallPos = iKnowBallPos || tmBallPosReliable;
+
+    Point ballPos = iKnowBallPos ? brain->data->ball.posToField : brain->data->tmBall.posToField;
+    double ballRange = iKnowBallPos ? brain->data->ball.range : brain->data->tmBall.range;
+    double ballYaw = iKnowBallPos ? brain->data->ball.yawToRobot : brain->data->tmBall.yawToRobot;
+    double kickDir = atan2(ballPos.y, ballPos.x + fd.length / 2.0);
+    double dir_rb_f = atan2(ballPos.y - brain->data->robotPoseToField.y, ballPos.x - brain->data->robotPoseToField.x);
     bool angleIsGood = (dir_rb_f > -M_PI / 2 && dir_rb_f < M_PI / 2);
-    double ballRange = brain->data->ball.range;
-    double ballYaw = brain->data->ball.yawToRobot;
 
     bool enableAutoVisualKick;
     brain->get_parameter("strategy.enable_auto_visual_defend", enableAutoVisualKick);
 
-    // ================= [修复] 初始化变量，防止编译警告/错误 =================
     double autoVisualKickEnableDistMin = 0.5;
     double autoVisualKickEnableDistMax = 2.0;
     double autoVisualKickEnableAngle = 0.5;
     double autoVisualKickObstacleDistThreshold = 1.0;
     double autoVisualKickObstacleAngleThreshold = 0.5;
-    // ====================================================================
+
+    brain->data->goalieBlockActive = false;
+
+    double ballSpeed = 0.0;
+    double vxBall = 0.0;
+    double vyBall = 0.0;
+    bool speedReliable = false;
+    if (hasBallPos && iKnowBallPos) {
+        if (_hasGoalieBallSample) {
+            double dt = (now - _lastGoalieBallSampleTime).seconds();
+            double moveDist = norm(ballPos.x - _lastGoalieBallPosToField.x, ballPos.y - _lastGoalieBallPosToField.y);
+            if (dt > 0.04 && dt < 1.0) {
+                ballSpeed = moveDist / dt;
+                vxBall = (ballPos.x - _lastGoalieBallPosToField.x) / dt;
+                vyBall = (ballPos.y - _lastGoalieBallPosToField.y) / dt;
+                speedReliable = true;
+            }
+        }
+        _lastGoalieBallPosToField = ballPos;
+        _lastGoalieBallSampleTime = now;
+        _hasGoalieBallSample = true;
+    } else if (!hasBallPos) {
+        _hasGoalieBallSample = false;
+    }
+
+    const double ownGoalX = -fd.length / 2.0;
+    const double guardX = ownGoalX + 0.25;
+    const double goalHalfWidth = fd.goalWidth / 2.0;
+    const double blockYLimit = std::min(fd.penaltyAreaWidth / 2.0, goalHalfWidth + 0.45);
+    const double fastBallSpeed = 1.2;
+    const double midBallSpeed = 0.7;
+    const double clearSpeedLimit = 0.9;
+    const double goalieReactionSec = 0.15;
+    const double lateralSpeed = std::max(0.1, brain->config->vyLimit);
+    const double rushSpeed = std::max(0.2, brain->config->vxLimit * 0.85);
+
+    bool goalThreat = false;
+    Point2D bestBlock{guardX, 0.0};
+    double bestBallArrivalSec = 99.0;
+    string blockMode = "";
+    if (hasBallPos) {
+        vector<Point2D> candidatePoints;
+        if (!brain->data->predictedBallPos.empty() && brain->msecsSince(brain->data->ballPosPredictTime) < 500.0) {
+            for (size_t i = 0; i < brain->data->predictedBallPos.size(); ++i) {
+                Point2D p{brain->data->predictedBallPos[i][0], brain->data->predictedBallPos[i][1]};
+                if (p.x <= guardX + 0.05 && fabs(p.y) <= goalHalfWidth + 0.35) {
+                    candidatePoints.push_back({guardX, cap(p.y, blockYLimit, -blockYLimit)});
+                }
+            }
+        }
+        if (speedReliable && ballSpeed > midBallSpeed && vxBall < -0.05 && ballPos.x > guardX) {
+            double tToGuard = (guardX - ballPos.x) / vxBall;
+            double yAtGuard = ballPos.y + vyBall * tToGuard;
+            if (tToGuard > 0.0 && tToGuard < 4.0 && fabs(yAtGuard) <= goalHalfWidth + 0.35) {
+                candidatePoints.push_back({guardX, cap(yAtGuard, blockYLimit, -blockYLimit)});
+            }
+        }
+
+        for (const auto &p : candidatePoints) {
+            double ballDist = norm(p.x - ballPos.x, p.y - ballPos.y);
+            double ballArrivalSec = speedReliable && ballSpeed > 1e-3 ? ballDist / ballSpeed : 1.0;
+            double lateralTime = fabs(p.y - brain->data->robotPoseToField.y) / lateralSpeed;
+            double rushTime = norm(p.x - brain->data->robotPoseToField.x, p.y - brain->data->robotPoseToField.y) / rushSpeed;
+            bool lateralOk = lateralTime + goalieReactionSec <= ballArrivalSec;
+            bool rushOk = rushTime + goalieReactionSec <= ballArrivalSec;
+            string mode = lateralOk ? "lateral_block" : (rushOk ? "rush_block" : "emergency_block");
+            double score = ballArrivalSec + (mode == "lateral_block" ? 0.0 : (mode == "rush_block" ? 0.4 : 0.8));
+            if (!goalThreat || score < bestBallArrivalSec) {
+                goalThreat = true;
+                bestBlock = p;
+                bestBallArrivalSec = ballArrivalSec;
+                blockMode = mode;
+            }
+        }
+    }
+
+    const bool fastBall = speedReliable && ballSpeed >= fastBallSpeed;
+    const bool highSpeedThreat = goalThreat && fastBall;
+    const bool nearSlowClear = hasBallPos && ballRange < 0.55 && (!speedReliable || ballSpeed < clearSpeedLimit);
 
     string newDecision;
     auto color = 0xFFFFFFFF; // for log
-    bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
-    bool tmBallPosReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
-    if (!(iKnowBallPos || tmBallPosReliable))
+    if (!hasBallPos)
     {
         newDecision = "find";
         color = 0x0000FFFF;
     }
-    else if (brain->data->ball.posToField.x > 0 - static_cast<double>(lastDecision == "retreat"))
+    else if (goalThreat && (highSpeedThreat || bestBallArrivalSec < 2.0 || lastDecision == "block"))
+    {
+        brain->data->goalieBlockActive = true;
+        brain->data->goalieBlockPoint = bestBlock;
+        brain->data->goalieBlockBallSpeed = ballSpeed;
+        brain->data->goalieBlockBallArrivalSec = bestBallArrivalSec;
+        brain->data->goalieBlockMode = blockMode;
+        brain->data->goalieBlockUpdateTime = now;
+        newDecision = "block";
+        color = 0xFF0000FF;
+    }
+    else if (ballPos.x > 0 - static_cast<double>(lastDecision == "retreat"))
     {
         newDecision = "retreat";
         color = 0xFF00FFFF;
     }
     else if (
                 enableAutoVisualKick &&
+                !fastBall &&
                 brain->data->ball.range < autoVisualKickEnableDistMax &&
                 brain->data->ball.range > autoVisualKickEnableDistMin &&
                 fabs(brain->data->ball.yawToRobot) < autoVisualKickEnableAngle / 2 &&
                 brain->isFrontRangeClear(-autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleDistThreshold, 0.035)
             ) {
-    // 自动视觉踢球分支已删除
+        newDecision = "kick";
         color = 0xFF00FFFF;
     }
     else if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))
@@ -1350,7 +1441,7 @@ NodeStatus GoalieDecide::tick()
         newDecision = "chase";
         color = 0x00FF00FF;
     }
-    else if (angleIsGood)
+    else if (nearSlowClear && angleIsGood && !highSpeedThreat)
     {
         newDecision = "kick";
         color = 0xFF0000FF;
@@ -1363,8 +1454,56 @@ NodeStatus GoalieDecide::tick()
 
     setOutput("decision_out", newDecision);
     brain->log->logToScreen("tree/Decide",
-                            format("决策: %s 球距: %.2f 球偏角: %.2f 踢球方向: %.2f 人球方向: %.2f 角度合适: %d", newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleIsGood),
+                            format("决策: %s 球距: %.2f 球偏角: %.2f 踢球方向: %.2f 人球方向: %.2f 角度合适: %d 球速: %.2f 封堵: %s 到达: %.2f",
+                                   newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleIsGood, ballSpeed, blockMode.c_str(), bestBallArrivalSec),
                             color);
+    return NodeStatus::SUCCESS;
+}
+
+NodeStatus GoalieBlock::tick()
+{
+    if (!brain->data->goalieBlockActive) {
+        brain->client->setVelocity(0, 0, 0);
+        return NodeStatus::SUCCESS;
+    }
+
+    double distTolerance, vxLimit, vyLimit, vthetaLimit, lateralVxLimit;
+    getInput("dist_tolerance", distTolerance);
+    getInput("vx_limit", vxLimit);
+    getInput("vy_limit", vyLimit);
+    getInput("vtheta_limit", vthetaLimit);
+    getInput("lateral_vx_limit", lateralVxLimit);
+
+    auto fd = brain->config->fieldDimensions;
+    Pose2D targetPose;
+    targetPose.x = cap(brain->data->goalieBlockPoint.x, -fd.length / 2.0 + fd.penaltyAreaLength + 0.2, -fd.length / 2.0 + 0.15);
+    targetPose.y = cap(brain->data->goalieBlockPoint.y, fd.penaltyAreaWidth / 2.0, -fd.penaltyAreaWidth / 2.0);
+    Point ballPos = brain->tree->getEntry<bool>("ball_location_known") ? brain->data->ball.posToField : brain->data->tmBall.posToField;
+    targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
+
+    auto robotPose = brain->data->robotPoseToField;
+    double dist = norm(targetPose.x - robotPose.x, targetPose.y - robotPose.y);
+    auto targetPoseR = brain->data->field2robot(targetPose);
+    double vx = targetPoseR.x;
+    double vy = targetPoseR.y;
+    double vtheta = toPInPI(targetPose.theta - robotPose.theta) * 2.0;
+
+    if (brain->data->goalieBlockMode == "lateral_block") {
+        vx = cap(vx, lateralVxLimit, -lateralVxLimit);
+        vy = cap(vy, vyLimit, -vyLimit);
+    } else {
+        vx = cap(vx, vxLimit, -vxLimit);
+        vy = cap(vy, vyLimit, -vyLimit);
+    }
+    vtheta = cap(vtheta, vthetaLimit, -vthetaLimit);
+
+    if (dist < distTolerance && fabs(vtheta) < 0.25) {
+        brain->client->setVelocity(0, 0, 0);
+    } else {
+        brain->client->setVelocity(vx, vy, vtheta, false, false, false);
+    }
+    brain->log->logToScreen("tree/GoalieBlock", format("封堵模式: %s 目标:(%.2f, %.2f) 球速: %.2f 到达: %.2f",
+        brain->data->goalieBlockMode.c_str(), targetPose.x, targetPose.y, brain->data->goalieBlockBallSpeed, brain->data->goalieBlockBallArrivalSec), 0xFF0000FF);
     return NodeStatus::SUCCESS;
 }
 

@@ -69,6 +69,12 @@ public:
     rclcpp::Time ballBreachTime; // 预计穿过的时间点
     Point2D ballInterceptPoint; // 最佳拦截点
     rclcpp::Time ballInterceptTime; // 球经过拦截点的时间
+    bool goalieBlockActive = false; // 守门员是否需要执行预测封堵
+    Point2D goalieBlockPoint; // 守门员预测封堵点，field 坐标系
+    double goalieBlockBallSpeed = 0.0; // 当前估计球速，m/s
+    double goalieBlockBallArrivalSec = 0.0; // 球到封堵点预计剩余时间，s
+    string goalieBlockMode = ""; // lateral_block | rush_block | emergency_block
+    rclcpp::Time goalieBlockUpdateTime; // 最近一次守门员封堵点更新时间
 
     // 机器人
     inline vector<GameObject> getRobots() const {
