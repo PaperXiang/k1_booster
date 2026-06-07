@@ -7,7 +7,7 @@
          <!-- <CamTrackBall /> -->
          <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
          <GoToReadyPosition _while="!ball_location_known" />
-         <GoToGoalBlockingPosition _while="ball_location_known" />
+         <GoToGoalBlockingPosition _while="ball_location_known" dist_to_goalline="0.25" theta_tolerance="0.2" />
          <SelfLocate mode="trust_direction" _while="odom_calibrated" />
       </ReactiveSequence>
    </BehaviorTree>

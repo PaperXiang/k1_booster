@@ -537,6 +537,8 @@ NodeStatus SimpleChase::tick()
 NodeStatus GoToFreekickPosition::onStart() {
     // brain->log->log("debug/freekick_position/onStart", rerun::TextLog(format("stage onStart")));
     _isInFinalAdjust = false;
+    _hasFreekickBallRef = false;
+    _timeLastFreekickBallMove = brain->get_clock()->now();
     return NodeStatus::RUNNING;
 }
 
@@ -553,10 +555,75 @@ NodeStatus GoToFreekickPosition::onRunning() {
 
     Pose2D targetPose = {0.0, 0.0, 0.0};
     const auto fd = brain->config->fieldDimensions;
-    const auto ballPos = brain->data->ball.posToField;
+    auto ballPos = brain->data->ball.posToField;
     const auto robotPose = brain->data->robotPoseToField;
     const double ownGoalX = -fd.length / 2.0;
     const double oppGoalX = fd.length / 2.0;
+
+    auto keepAwayFromBall = [](Pose2D &pose, const Point &ball, double minDist) {
+        double dx = pose.x - ball.x;
+        double dy = pose.y - ball.y;
+        double dist = norm(dx, dy);
+        if (dist >= minDist) return;
+        double dir = dist > 1e-6 ? atan2(dy, dx) : 0.0;
+        pose.x = ball.x + minDist * cos(dir);
+        pose.y = ball.y + minDist * sin(dir);
+    };
+
+    auto pickRestartBall = [&]() {
+        struct BallCandidate {
+            bool valid = false;
+            Point pos;
+            double range = 1e6;
+            double confidence = 0.0;
+            double ageMsec = 1e6;
+            bool local = false;
+        } best;
+
+        auto consider = [&](const Point &pos, double range, double confidence, double ageMsec, bool local) {
+            if (confidence < brain->config->ballConfidenceThreshold) return;
+            const double score = confidence - range * 5.0 - ageMsec / 1000.0 * 20.0 + (local ? 15.0 : 0.0);
+            const double bestScore = best.valid ? best.confidence - best.range * 5.0 - best.ageMsec / 1000.0 * 20.0 + (best.local ? 15.0 : 0.0) : -1e9;
+            if (!best.valid || score > bestScore) {
+                best.valid = true;
+                best.pos = pos;
+                best.range = range;
+                best.confidence = confidence;
+                best.ageMsec = ageMsec;
+                best.local = local;
+            }
+        };
+
+        if (brain->tree->getEntry<bool>("ball_location_known") && brain->data->ballDetected) {
+            consider(brain->data->ball.posToField, brain->data->ball.range, brain->data->ball.confidence, 0.0, true);
+        }
+
+        const double comTimeoutMsec = 1500.0;
+        const int playerCount = std::min(std::max(brain->config->numOfPlayers, 1), HL_MAX_NUM_PLAYERS);
+        for (int i = 0; i < playerCount; ++i) {
+            if (i == brain->config->playerId - 1) continue;
+            const auto &status = brain->data->tmStatus[i];
+            double ageMsec = brain->msecsSince(status.timeLastCom);
+            if (
+                brain->data->penalty[i] == PENALTY_NONE
+                && status.isAlive
+                && status.ballDetected
+                && status.ballLocationKnown
+                && ageMsec < comTimeoutMsec
+            ) {
+                consider(status.ballPosToField, status.ballRange, status.ballConfidence, ageMsec, false);
+            }
+        }
+
+        if (!best.valid && brain->tree->getEntry<bool>("tm_ball_pos_reliable")) {
+            best.valid = true;
+            best.pos = brain->data->tmBall.posToField;
+            best.range = brain->data->tmBall.range;
+            best.confidence = brain->config->ballConfidenceThreshold;
+            best.ageMsec = 0.0;
+        }
+        return best;
+    };
 
     const double kickDir = brain->data->kickDir;
     const double defenseDir = atan2(ballPos.y, ballPos.x + fd.length / 2.0);
@@ -583,29 +650,77 @@ NodeStatus GoToFreekickPosition::onRunning() {
             log(format("freekick attack fallback, rank=%d", rank));
         }
     } else if (side == "defense") {
-        if (rank == 0) {
-            targetPose.x = ballPos.x - 3.0 * cos(defenseDir);
-            targetPose.y = ballPos.y - 2.5 * sin(defenseDir);
-            targetPose.theta = defenseDir;
-           } else if (rank == 1) {
-            targetPose.x = ballPos.x - 3.5 * cos(defenseDir);
-            targetPose.y = ballPos.y - 4.0 * sin(defenseDir);
-            targetPose.theta = defenseDir;
-            } else if (rank == 2) {
-                targetPose.x = - fd.length / 2.0 + fd.penaltyDist;
-                targetPose.y = fd.goalAreaWidth / 2.0;
-            } else { // rank >= 3
-                targetPose.x = - fd.length / 2.0 + fd.penaltyDist;
-                targetPose.y = - fd.goalAreaWidth / 2.0;
-                log(format("freekick defense fallback, rank=%d", rank));
+        const double minRestartDist = 1.60;
+        const double observeDist = 2.20;
+        const double reliableBallRange = 4.0;
+        const double moveThreshold = 0.15;
+        const double stableMsec = 800.0;
+        const double wallSpacing = 0.55;
+        auto bestBall = pickRestartBall();
+        if (!bestBall.valid) {
+            brain->client->setVelocity(0, 0, 0);
+            return NodeStatus::RUNNING;
         }
+
+        ballPos = bestBall.pos;
+        auto now = brain->get_clock()->now();
+        if (!_hasFreekickBallRef) {
+            _freekickBallRef = ballPos;
+            _timeLastFreekickBallMove = now;
+            _hasFreekickBallRef = true;
+        } else if (norm(ballPos.x - _freekickBallRef.x, ballPos.y - _freekickBallRef.y) > moveThreshold) {
+            _freekickBallRef = ballPos;
+            _timeLastFreekickBallMove = now;
+            _isInFinalAdjust = false;
+        }
+
+        const bool ballStable = brain->msecsSince(_timeLastFreekickBallMove) > stableMsec;
+        const bool ballCloseEnough = norm(ballPos.x - robotPose.x, ballPos.y - robotPose.y) < reliableBallRange;
+        const double aimDir = atan2(-ballPos.y, ownGoalX - ballPos.x);
+
+        vector<int> wallIds;
+        const int playerCount = std::min(std::max(brain->config->numOfPlayers, 1), HL_MAX_NUM_PLAYERS);
+        const string myRole = brain->tree->getEntry<string>("player_role");
+        for (int id = 1; id <= playerCount; ++id) {
+            if (brain->data->penalty[id - 1] != PENALTY_NONE) continue;
+            string role = id == brain->config->playerId ? myRole : brain->data->tmStatus[id - 1].role;
+            if (role == "goal_keeper") continue;
+            wallIds.push_back(id);
+        }
+        if (std::find(wallIds.begin(), wallIds.end(), brain->config->playerId) == wallIds.end() && myRole != "goal_keeper") {
+            wallIds.push_back(brain->config->playerId);
+        }
+        std::sort(wallIds.begin(), wallIds.end());
+
+        int wallRank = 0;
+        auto myWallIt = std::find(wallIds.begin(), wallIds.end(), brain->config->playerId);
+        if (myWallIt != wallIds.end()) wallRank = static_cast<int>(std::distance(wallIds.begin(), myWallIt));
+        const int wallCount = std::max(1, static_cast<int>(wallIds.size()));
+
+        if (!ballStable || !ballCloseEnough) {
+            targetPose.x = ballPos.x + observeDist * cos(aimDir);
+            targetPose.y = ballPos.y + observeDist * sin(aimDir);
+        } else {
+            const double wallDir = aimDir + M_PI / 2.0;
+            const double offset = (wallRank - (wallCount - 1) / 2.0) * wallSpacing;
+            targetPose.x = ballPos.x + minRestartDist * cos(aimDir) + offset * cos(wallDir);
+            targetPose.y = ballPos.y + minRestartDist * sin(aimDir) + offset * sin(wallDir);
+        }
+        targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
+        keepAwayFromBall(targetPose, ballPos, minRestartDist);
     }
 
     // 场地约束（对齐 assist 思路）：保证目标点始终在可行区域。
     targetPose.x = cap(targetPose.x, oppGoalX - 0.3, ownGoalX + 0.3);
     targetPose.y = cap(targetPose.y, fd.width / 2.0 - 0.6, -fd.width / 2.0 + 0.6);
-    // 对 rank>=2 的固定后场位，朝向球更稳定。
-    if (rank >= 2) {
+    if (side == "defense") {
+        keepAwayFromBall(targetPose, ballPos, 1.60);
+        targetPose.x = cap(targetPose.x, oppGoalX - 0.3, ownGoalX + 0.3);
+        targetPose.y = cap(targetPose.y, fd.width / 2.0 - 0.6, -fd.width / 2.0 + 0.6);
+        keepAwayFromBall(targetPose, ballPos, 1.60);
+        targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
+    } else if (rank >= 2) {
+        // 对 rank>=2 的固定后场位，朝向球更稳定。
         targetPose.theta = atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
     }
 
@@ -633,9 +748,18 @@ NodeStatus GoToFreekickPosition::onRunning() {
 
         double vx = targetPose_r.x;
         double vy = targetPose_r.y;
-        double vtheta = brain->data->ball.yawToRobot * 2.0; // 后面的乘数越大, 转身越快
+        double vtheta = side == "defense"
+            ? toPInPI(targetPose.theta - robotPose.theta) * 2.0
+            : brain->data->ball.yawToRobot * 2.0; // 后面的乘数越大, 转身越快
 
-        double linearFactor = 1 / (1 + exp(3 * (brain->data->ball.range * fabs(brain->data->ball.yawToRobot)) - 3)); // 距离远时, 优先转向
+        const double effectiveBallRange = side == "defense"
+            ? norm(ballPos.x - robotPose.x, ballPos.y - robotPose.y)
+            : brain->data->ball.range;
+        const double effectiveBallYaw = side == "defense"
+            ? toPInPI(atan2(ballPos.y - robotPose.y, ballPos.x - robotPose.x) - robotPose.theta)
+            : brain->data->ball.yawToRobot;
+
+        double linearFactor = 1 / (1 + exp(3 * (effectiveBallRange * fabs(effectiveBallYaw)) - 3)); // 距离远时, 优先转向
         vx *= linearFactor;
         vy *= linearFactor;
 
@@ -643,7 +767,7 @@ NodeStatus GoToFreekickPosition::onRunning() {
         Line path = {robotPose.x, robotPose.y, targetPose.x, targetPose.y};
         if (
             pointMinDistToLine(Point2D({ballPos.x, ballPos.y}), path) < 0.7
-            && brain->data->ball.range < 1.2
+            && effectiveBallRange < 1.2
         ) {
             vx = min(0.0, vx);
             vy = vy >= 0 ? vy + 0.1: vy - 0.1;

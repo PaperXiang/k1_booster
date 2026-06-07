@@ -739,6 +739,9 @@ public:
 private:
     Brain *brain;
     bool _isInFinalAdjust = false;
+    bool _hasFreekickBallRef = false;
+    Point _freekickBallRef;
+    rclcpp::Time _timeLastFreekickBallMove;
 };
 
 class GoBackInField : public SyncActionNode
