@@ -105,10 +105,13 @@
       chase_ao_safe_dist: 1.5 # 追球阶段避障安全距离，单位米。
       always_turn_left: false # 代码会读取但当前未声明；用于 moveToPoseOnField2 避障时固定向左绕行。
 
+    RLVisionKick:
+      visual_kick_version: kV2 # kV1 | kV2
+
     # 自定位参数，用场地标记和线段修正 odom 到 field 的变换。
     locator:
-      min_marker_count: 5 # 执行定位校正所需的最少场地标记数量。
-      max_residual: 0.35 # 定位匹配允许的最大残差，超过则认为定位结果不可信。
+      min_marker_count: 4 # 执行定位校正所需的最少场地标记数量。
+      max_residual: 0.4 # 定位匹配允许的最大残差，超过则认为定位结果不可信。
 
     enable_com: True # 是否开启队友间通信，开启后会广播/接收队友状态用于协作，建议比赛时打开。
 
@@ -127,8 +130,8 @@
 
     # Brain 侧使用的视觉话题和相机视场参数，用于日志、头部跟踪和目标角度估计。
     vision:
-      image_topic: "/camera/camera/color/image_raw" # Brain 侧图像日志 topic，仅在 rerun log 开启时订阅；视觉识别输入由 vision_node 配置。
-      depth_image_topic: "/camera/camera/aligned_depth_to_color/image_raw" # Brain 侧深度图 topic，用于障碍物点云/栅格处理。
+      image_topic: "/boostercamera/head/rgb" # 相机topic统一命名，topic名称不需更改
+      depth_image_topic: "/boostercamera/head/depth" # 相机topic统一命名，topic名称不需更改
       # image_topic: "/image_left_raw" # d-robotics
       # depth_image_topic: "/image_left_raw/camera_info" # d-robotics
       # cam_pixel_width: 544. # 相机像素宽度, d-robotics

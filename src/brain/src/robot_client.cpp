@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cctype>
 #include <booster_internal/robot/b1/b1_loco_internal_api.hpp>
 #include "brain.h"
 #include "robot_client.h"

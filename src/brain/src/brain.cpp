@@ -136,6 +136,7 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<string>("vision_config_local_path", "");
 
     declare_parameter<int>("recovery.retry_max_count", 2);
+    declare_parameter<string>("RLVisionKick.visual_kick_version", "kV2");
 }
 
 Brain::~Brain()
