@@ -250,18 +250,18 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     std::string color_topic;
     std::string depth_topic;
     if (camera_type_.find("zed") != std::string::npos) {
-        color_topic = "/zed/zed_node/left/image_rect_color";
-        depth_topic = "/zed/zed_node/depth/depth_registered";
+        color_topic = "/boostercamera/head/rgb";
+        depth_topic = "/boostercamera/head/depth";
     } else if (camera_type_ == "d-robotics") {
-        color_topic = "/image_left_raw";
-        depth_topic = "/image_left_raw/camera_info";
+        color_topic = "/boostercamera/head/rgb";
+        depth_topic = "/boostercamera/head/depth";
     } else if (camera_type_ == "orbbec") {
-        color_topic = "/camera/color/image_raw";
-        depth_topic = "/camera/depth/image_raw";
+        color_topic = "/boostercamera/head/rgb";
+        depth_topic = "/boostercamera/head/depth";
     } else {
         // realsense
-        color_topic = "/camera/camera/color/image_raw";
-        depth_topic = "/camera/camera/aligned_depth_to_color/image_raw";
+        color_topic = "/boostercamera/head/rgb";
+        depth_topic = "/boostercamera/head/depth";
     }
 
     callback_group_sub_1_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
