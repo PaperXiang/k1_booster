@@ -239,6 +239,8 @@ void Brain::loadConfig()
     get_parameter("locator.min_marker_count", config->pfMinMarkerCnt);
     get_parameter("locator.max_residual", config->pfMaxResidual);
 
+    get_parameter("RLVisionKick.visual_kick_version", config->RLVisionKickVisualKickVersion);
+
     get_parameter("enable_com", config->enableCom);
 
     // get_parameter("rerunLog.enable", config->rerunLogEnable);

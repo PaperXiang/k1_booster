@@ -150,18 +150,32 @@ int RobotClient::squatUp()
 int RobotClient::RLVisionKick(bool start)
 {
     booster_interface::msg::BoosterApiReqMsg msg;
-    msg.api_id = kApiIdEnableVisualKickMode;
+    msg.api_id = static_cast<int64_t>(booster::robot::b1::LocoApiId::kVisualKick);
     nlohmann::json body;
     body["start"] = start;
+    std::string verLower;
+    verLower.reserve(brain->config->RLVisionKickVisualKickVersion.size());
+    for (unsigned char c : brain->config->RLVisionKickVisualKickVersion) {
+        verLower.push_back(static_cast<char>(std::tolower(c)));
+    }
+    booster::robot::b1::VisualKickVersion vk = booster::robot::b1::VisualKickVersion::kV2;
+    if (verLower == "kv1" || verLower == "v1") {
+        vk = booster::robot::b1::VisualKickVersion::kV1;
+    } else if (verLower == "kv2" || verLower == "v2") {
+        vk = booster::robot::b1::VisualKickVersion::kV2;
+    }
+    body["version"] = static_cast<int>(vk);
     msg.body = body.dump();
-    std::cout << "[调试] 调用视觉踢球：启动=" << (start ? "是" : "否") << "，API ID=" << msg.api_id << std::endl;
+    std::cout << "RobotClient::RLVisionKick called with start=" << (start ? "true" : "false") << std::endl;
     return call(msg);
 }
 
 int RobotClient::robocupWalk()
 {
-    std::cout << "[调试] 切换到 RoboCup 行走模式" << std::endl;
-    return call(booster_interface::CreateChangeModeMsg(booster::robot::RobotMode::kWalking));
+    std::cout << "RobotClient::robocupWalk exit VisualKick(false)" << std::endl;
+
+    // Only exit VisualKick mode; gait/mode switch is handled elsewhere.
+    return RLVisionKick(false);
 }
 
 int RobotClient::enterDamping()

@@ -114,6 +114,9 @@ public:
     bool soundEnable = false;
     string soundPack = "espeak"; // espeak 或 语音名名称, 假设语音包名称为 <name>, 相应的语音文件需放到: sound_play/sounds/<name>/ 目录下
 
+    // RLVisionKick 参数
+    string RLVisionKickVisualKickVersion = "kV2"; // 对应 RLVisionKick.visual_kick_version  kV1 | kV2
+
     // 计算地面标线与标志点的理论值
     void calcMapLines();
     void calcMapMarkings();

@@ -1,5 +1,6 @@
 #include "brain_config.h"
 #include "utils/print.h"
+#include <cctype>
 
 void BrainConfig::calcMapLines() {
     auto fd = fieldDimensions;
@@ -259,6 +260,16 @@ void BrainConfig::handle()
     {
         throw invalid_argument("[Error] fieldType must be one of [adult_size, kid_size, robo_league]. Got: " + fieldType);
     }
+
+    string verLower;
+    verLower.reserve(RLVisionKickVisualKickVersion.size());
+    for (unsigned char c : RLVisionKickVisualKickVersion) {
+        verLower.push_back(static_cast<char>(std::tolower(c)));
+    }
+    if (verLower != "kv1" && verLower != "v1" && verLower != "kv2" && verLower != "v2") {
+        throw invalid_argument("[Error] RLVisionKick.visual_kick_version must be one of [kV1, kV2]. Got: " + RLVisionKickVisualKickVersion);
+    }
+
     calcMapLines();
     calcMapMarkings();
 }
