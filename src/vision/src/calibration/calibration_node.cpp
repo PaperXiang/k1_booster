@@ -161,18 +161,18 @@ void CalibrationNode::Init(const std::string cfg_path, bool is_offline, std::str
     std::string color_topic;
     std::string intrin_topic;
     if (camera_type_.find("zed") != std::string::npos) {
-        color_topic = "/zed/zed_node/left/image_rect_color";
-        intrin_topic = "/zed/zed_node/left/camera_info";
+        color_topic = "/boostercamera/head/rgb";
+        intrin_topic = "/boostercamera/head/rgb/camera_info";
     } else if (camera_type_ == "d-robotics") {
-        color_topic = "/image_left_raw";
-        intrin_topic = "/image_left_raw/camera_info";
+        color_topic = "/boostercamera/head/rgb";
+        intrin_topic = "/boostercamera/head/rgb/camera_info";
     } else if (camera_type_ == "orbbec") {
-        color_topic = "/camera/color/image_raw";
-        intrin_topic = "/camera/color/camera_info";
+        color_topic = "/boostercamera/head/rgb";
+        intrin_topic = "/boostercamera/head/rgb/camera_info";
     } else {
         // realsense
-        color_topic = "/camera/camera/color/image_raw";
-        intrin_topic = "/camera/camera/color/camera_info";
+        color_topic = "/boostercamera/head/rgb";
+        intrin_topic = "/boostercamera/head/rgb/camera_info";
     }
 
     it_ = std::make_shared<image_transport::ImageTransport>(shared_from_this());
