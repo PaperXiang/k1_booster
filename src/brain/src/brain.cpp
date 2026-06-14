@@ -83,9 +83,74 @@ void appendPoint2D(std::ostringstream &oss, const Point2D &point) {
     oss << "}";
 }
 
+void appendBoundingBox(std::ostringstream &oss, const BoundingBox &box) {
+    oss << "{\"xmin\":";
+    appendNumber(oss, box.xmin);
+    oss << ",\"xmax\":";
+    appendNumber(oss, box.xmax);
+    oss << ",\"ymin\":";
+    appendNumber(oss, box.ymin);
+    oss << ",\"ymax\":";
+    appendNumber(oss, box.ymax);
+    oss << "}";
+}
+
+void appendLine(std::ostringstream &oss, const Line &line) {
+    oss << "{\"x0\":";
+    appendNumber(oss, line.x0);
+    oss << ",\"y0\":";
+    appendNumber(oss, line.y0);
+    oss << ",\"x1\":";
+    appendNumber(oss, line.x1);
+    oss << ",\"y1\":";
+    appendNumber(oss, line.y1);
+    oss << "}";
+}
+
+const char *lineDirToString(LineDir dir) {
+    switch (dir) {
+    case LineDir::Horizontal: return "Horizontal";
+    case LineDir::Vertical: return "Vertical";
+    case LineDir::NA: return "NA";
+    }
+    return "NA";
+}
+
+const char *lineHalfToString(LineHalf half) {
+    switch (half) {
+    case LineHalf::Self: return "Self";
+    case LineHalf::Opponent: return "Opponent";
+    case LineHalf::NA: return "NA";
+    }
+    return "NA";
+}
+
+const char *lineSideToString(LineSide side) {
+    switch (side) {
+    case LineSide::Left: return "Left";
+    case LineSide::Right: return "Right";
+    case LineSide::NA: return "NA";
+    }
+    return "NA";
+}
+
+const char *lineTypeToString(LineType type) {
+    switch (type) {
+    case LineType::TouchLine: return "TouchLine";
+    case LineType::MiddleLine: return "MiddleLine";
+    case LineType::GoalLine: return "GoalLine";
+    case LineType::GoalArea: return "GoalArea";
+    case LineType::PenaltyArea: return "PenaltyArea";
+    case LineType::NA: return "NA";
+    }
+    return "NA";
+}
+
 void appendGameObject(std::ostringstream &oss, const GameObject &object) {
     oss << "{\"label\":";
     appendString(oss, object.label);
+    oss << ",\"color\":";
+    appendString(oss, object.color);
     oss << ",\"confidence\":";
     appendNumber(oss, object.confidence);
     oss << ",\"range\":";
@@ -98,7 +163,58 @@ void appendGameObject(std::ostringstream &oss, const GameObject &object) {
     appendPoint(oss, object.posToRobot);
     oss << ",\"pos_to_field\":";
     appendPoint(oss, object.posToField);
+    oss << ",\"bounding_box\":";
+    appendBoundingBox(oss, object.boundingBox);
+    oss << ",\"id\":" << object.id;
+    oss << ",\"name\":";
+    appendString(oss, object.name);
+    oss << ",\"id_confidence\":";
+    appendNumber(oss, object.idConfidence);
+    oss << ",\"info\":";
+    appendString(oss, object.info);
+    oss << ",\"timestamp\":";
+    appendNumber(oss, object.timePoint.seconds());
     oss << "}";
+}
+
+void appendGameObjectArray(std::ostringstream &oss, const vector<GameObject> &objects) {
+    oss << "[";
+    for (size_t i = 0; i < objects.size(); ++i) {
+        if (i > 0) oss << ",";
+        appendGameObject(oss, objects[i]);
+    }
+    oss << "]";
+}
+
+void appendFieldLine(std::ostringstream &oss, const FieldLine &line) {
+    oss << "{\"pos_to_field\":";
+    appendLine(oss, line.posToField);
+    oss << ",\"pos_to_robot\":";
+    appendLine(oss, line.posToRobot);
+    oss << ",\"pos_on_cam\":";
+    appendLine(oss, line.posOnCam);
+    oss << ",\"dir\":";
+    appendString(oss, lineDirToString(line.dir));
+    oss << ",\"half\":";
+    appendString(oss, lineHalfToString(line.half));
+    oss << ",\"side\":";
+    appendString(oss, lineSideToString(line.side));
+    oss << ",\"type\":";
+    appendString(oss, lineTypeToString(line.type));
+    oss << ",\"confidence\":";
+    appendNumber(oss, line.confidence);
+    oss << ",\"timestamp\":";
+    appendNumber(oss, line.timePoint.seconds());
+    oss << "}";
+}
+
+void appendFieldLineArray(std::ostringstream &oss, const vector<FieldLine> &lines) {
+    oss << "[";
+    for (size_t i = 0; i < lines.size(); ++i) {
+        if (i > 0) oss << ",";
+        appendFieldLine(oss, lines[i]);
+    }
+    oss << "]";
 }
 
 } // namespace
@@ -166,6 +282,10 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("strategy.auto_visual_kick_enable_dist_min", 0.2);
     declare_parameter<double>("strategy.auto_visual_kick_enable_dist_max", 4.0);
     declare_parameter<double>("strategy.auto_visual_kick_enable_angle", 0.8);
+    declare_parameter<bool>("strategy.enable_rlvk_chase", false);
+    declare_parameter<double>("strategy.rlvk_chase_enable_dist_min", 1.0);
+    declare_parameter<double>("strategy.rlvk_chase_enable_dist_max", 6.0);
+    declare_parameter<double>("strategy.rlvk_chase_enable_angle", 0.8);
     declare_parameter<bool>("strategy.enable_auto_visual_defend", false);
 
     declare_parameter<bool>("strategy.power_shoot.enable", false);
@@ -519,6 +639,29 @@ string Brain::buildWebuiStatusJson() {
     oss << ",\"mode_index\":" << data->currentRobotModeIndex;
     oss << "}";
 
+    const auto &fd = config->fieldDimensions;
+    oss << ",\"field\":{\"type\":";
+    appendString(oss, config->fieldType);
+    oss << ",\"length\":";
+    appendNumber(oss, fd.length);
+    oss << ",\"width\":";
+    appendNumber(oss, fd.width);
+    oss << ",\"penalty_dist\":";
+    appendNumber(oss, fd.penaltyDist);
+    oss << ",\"goal_width\":";
+    appendNumber(oss, fd.goalWidth);
+    oss << ",\"circle_radius\":";
+    appendNumber(oss, fd.circleRadius);
+    oss << ",\"penalty_area_length\":";
+    appendNumber(oss, fd.penaltyAreaLength);
+    oss << ",\"penalty_area_width\":";
+    appendNumber(oss, fd.penaltyAreaWidth);
+    oss << ",\"goal_area_length\":";
+    appendNumber(oss, fd.goalAreaLength);
+    oss << ",\"goal_area_width\":";
+    appendNumber(oss, fd.goalAreaWidth);
+    oss << "}";
+
     oss << ",\"game\":{\"state\":";
     appendString(oss, tree->getEntry<string>("gc_game_state"));
     oss << ",\"sub_state_type\":";
@@ -642,6 +785,25 @@ string Brain::buildWebuiStatusJson() {
     }
     oss << "]}";
 
+    const auto robots = data->getRobots();
+    const auto obstacles = data->getObstacles();
+    const auto goalposts = data->getGoalposts();
+    const auto markings = data->getMarkings();
+    const auto fieldLines = data->getFieldLines();
+    oss << ",\"perception\":{\"robots\":";
+    appendGameObjectArray(oss, robots);
+    oss << ",\"opponents\":";
+    appendGameObjectArray(oss, robots);
+    oss << ",\"obstacles\":";
+    appendGameObjectArray(oss, obstacles);
+    oss << ",\"goalposts\":";
+    appendGameObjectArray(oss, goalposts);
+    oss << ",\"markings\":";
+    appendGameObjectArray(oss, markings);
+    oss << ",\"field_lines\":";
+    appendFieldLineArray(oss, fieldLines);
+    oss << "}";
+
     oss << ",\"health\":{\"cam_connected\":" << (data->camConnected ? "true" : "false");
     oss << ",\"ms_since_detection\":";
     appendNumber(oss, msecsSince(data->timeLastDet));
@@ -651,9 +813,11 @@ string Brain::buildWebuiStatusJson() {
     appendNumber(oss, msecsSince(data->timeLastGamecontrolMsg));
     oss << ",\"ms_since_localize\":";
     appendNumber(oss, msecsSince(data->lastSuccessfulLocalizeTime));
-    oss << ",\"robot_count\":" << data->getRobots().size();
-    oss << ",\"obstacle_count\":" << data->getObstacles().size();
-    oss << ",\"goalpost_count\":" << data->getGoalposts().size();
+    oss << ",\"robot_count\":" << robots.size();
+    oss << ",\"obstacle_count\":" << obstacles.size();
+    oss << ",\"goalpost_count\":" << goalposts.size();
+    oss << ",\"marking_count\":" << markings.size();
+    oss << ",\"field_line_count\":" << fieldLines.size();
     oss << "}";
 
     oss << "}";

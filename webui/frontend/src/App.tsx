@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchLatest, fetchRobots, getApiBase, getWsBase } from './api';
 import FieldView from './components/FieldView';
 import StatusCard from './components/StatusCard';
-import type { RobotSnapshot } from './types';
+import type { FieldEntity, FieldLineInfo, GameObject, RobotSnapshot } from './types';
 
 function fmt(value: unknown, digits = 2): string {
   if (value === null || value === undefined || value === '') return '--';
@@ -14,6 +14,69 @@ function fmt(value: unknown, digits = 2): string {
 
 function badge(value: boolean | undefined, label: string) {
   return <span className={`badge ${value ? 'on' : 'off'}`}>{label}: {value ? 'ON' : 'OFF'}</span>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function pointText(value: unknown, includeTheta = false): string {
+  if (!isRecord(value)) return '--';
+  const { x, y, theta } = value;
+  if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return '--';
+  const text = `${x.toFixed(2)}, ${y.toFixed(2)}`;
+  return includeTheta && typeof theta === 'number' && Number.isFinite(theta) ? `${text}, ${theta.toFixed(2)} rad` : text;
+}
+
+function entityLabel(entity: FieldEntity, fallback: string): string {
+  for (const key of ['label', 'robot_id', 'name', 'player_id', 'id', 'send_id']) {
+    const value = entity[key];
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return fallback;
+}
+
+function entityPointText(entity: FieldEntity): string {
+  for (const value of [entity.pose, entity.field, entity.robot_pose_to_field, entity.robotPoseToField, entity.pos_to_field]) {
+    const text = pointText(value, true);
+    if (text !== '--') return text;
+  }
+  return pointText(entity, true);
+}
+
+function entityBallText(entity: FieldEntity): string {
+  for (const value of [entity.ball_pos_to_field, entity.ballPosToField]) {
+    const text = pointText(value);
+    if (text !== '--') return text;
+  }
+  if (isRecord(entity.ball)) {
+    const ballRecord: Record<string, unknown> = entity.ball;
+    for (const value of [ballRecord, ballRecord.pos_to_field, ballRecord.posToField, ballRecord.current]) {
+      const text = pointText(value);
+      if (text !== '--') return text;
+    }
+  }
+  return '--';
+}
+
+function objectLabel(object: GameObject, fallback: string): string {
+  if (object.name) return object.name;
+  if (object.label) return object.label;
+  if (object.id !== null && object.id !== undefined) return String(object.id);
+  return fallback;
+}
+
+function objectPointText(object: GameObject): string {
+  return pointText(object.pos_to_field);
+}
+
+function fieldLineText(line: FieldLineInfo): string {
+  const pos = line.pos_to_field;
+  if (!pos || typeof pos.x0 !== 'number' || typeof pos.y0 !== 'number' || typeof pos.x1 !== 'number' || typeof pos.y1 !== 'number') {
+    return '--';
+  }
+  return `(${pos.x0.toFixed(2)}, ${pos.y0.toFixed(2)}) -> (${pos.x1.toFixed(2)}, ${pos.y1.toFixed(2)})`;
 }
 
 export default function App() {
@@ -80,6 +143,15 @@ export default function App() {
   const prediction = status?.prediction;
   const health = status?.health ?? {};
   const team = status?.team;
+  const pose = status?.pose;
+  const field = status?.field;
+  const perception = status?.perception;
+  const teammates = team?.teammates ?? [];
+  const opponents = [...(status?.opponents ?? []), ...(status?.perception?.opponents ?? [])];
+  const obstacles = [...(status?.obstacles ?? []), ...(status?.perception?.obstacles ?? [])];
+  const goalposts = perception?.goalposts ?? [];
+  const markings = perception?.markings ?? [];
+  const fieldLines = perception?.field_lines ?? [];
 
   const lastSeenText = useMemo(() => {
     if (!snapshot?.last_seen_at) return '--';
@@ -114,6 +186,7 @@ export default function App() {
         <span>Role: {fmt(robot.role_current)}</span>
         <span>Game: {fmt(game.state)}</span>
         <span>Decision: {fmt(behavior.decision)}</span>
+        <span>Field: {fmt(field?.type)}</span>
       </section>
 
       <div className="grid">
@@ -169,11 +242,19 @@ export default function App() {
             <dt>Line lag</dt><dd>{fmt(health.ms_since_line_detection, 0)} ms</dd>
             <dt>GameController lag</dt><dd>{fmt(health.ms_since_gamecontroller, 0)} ms</dd>
             <dt>Localize lag</dt><dd>{fmt(health.ms_since_localize, 0)} ms</dd>
+            <dt>Robots / obstacles</dt><dd>{fmt(health.robot_count, 0)} / {fmt(health.obstacle_count, 0)}</dd>
+            <dt>Marks / lines</dt><dd>{fmt(health.marking_count, 0)} / {fmt(health.field_line_count, 0)}</dd>
           </dl>
         </StatusCard>
 
         <StatusCard title="Field">
           <FieldView snapshot={snapshot} />
+          <dl className="compactDl fieldStats">
+            <dt>Size</dt><dd>{fmt(field?.length)} x {fmt(field?.width)} m</dd>
+            <dt>Self field</dt><dd>{pointText(pose?.field, true)}</dd>
+            <dt>Self odom</dt><dd>{pointText(pose?.odom, true)}</dd>
+            <dt>Head yaw/pitch</dt><dd>{fmt(pose?.head?.yaw)} / {fmt(pose?.head?.pitch)}</dd>
+          </dl>
         </StatusCard>
 
         <StatusCard title="Team">
@@ -183,6 +264,63 @@ export default function App() {
             <dt>Send id</dt><dd>{fmt(team?.send_id, 0)}</dd>
             <dt>Teammates</dt><dd>{team?.teammates?.length ?? 0}</dd>
           </dl>
+          {teammates.length > 0 && (
+            <div className="entityList">
+              {teammates.map((mate, index) => (
+                <div className="entityRow" key={`${entityLabel(mate, 'mate')}-${index}`}>
+                  <strong>{entityLabel(mate, `T${index + 1}`)}</strong>
+                  <span>pose: {entityPointText(mate)}</span>
+                  <span>ball: {entityBallText(mate)}</span>
+                  <span>cost: {fmt(mate.cost ?? mate.tm_cost ?? mate.ball_control_cost)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </StatusCard>
+
+        <StatusCard title="Perception">
+          <dl>
+            <dt>Opponents</dt><dd>{opponents.length}</dd>
+            <dt>Obstacles</dt><dd>{obstacles.length}</dd>
+            <dt>Goalposts</dt><dd>{goalposts.length}</dd>
+            <dt>Markings</dt><dd>{markings.length}</dd>
+            <dt>Field lines</dt><dd>{fieldLines.length}</dd>
+          </dl>
+          {(opponents.length > 0 || obstacles.length > 0 || goalposts.length > 0 || markings.length > 0 || fieldLines.length > 0) && (
+            <div className="entityList">
+              {opponents.map((item, index) => (
+                <div className="entityRow" key={`opponent-${entityLabel(item, 'opponent')}-${index}`}>
+                  <strong>O: {entityLabel(item, `O${index + 1}`)}</strong>
+                  <span>{entityPointText(item)}</span>
+                </div>
+              ))}
+              {obstacles.map((item, index) => (
+                <div className="entityRow" key={`obstacle-${entityLabel(item, 'obstacle')}-${index}`}>
+                  <strong>X: {entityLabel(item, `X${index + 1}`)}</strong>
+                  <span>{entityPointText(item)}</span>
+                </div>
+              ))}
+              {goalposts.map((item, index) => (
+                <div className="entityRow" key={`goalpost-${objectLabel(item, 'goalpost')}-${index}`}>
+                  <strong>G: {objectLabel(item, `G${index + 1}`)}</strong>
+                  <span>{objectPointText(item)}</span>
+                </div>
+              ))}
+              {markings.map((item, index) => (
+                <div className="entityRow" key={`marking-${objectLabel(item, 'marking')}-${index}`}>
+                  <strong>M: {objectLabel(item, `M${index + 1}`)}</strong>
+                  <span>{objectPointText(item)}</span>
+                </div>
+              ))}
+              {fieldLines.map((item, index) => (
+                <div className="entityRow" key={`field-line-${item.type ?? 'line'}-${index}`}>
+                  <strong>L: {fmt(item.type)}</strong>
+                  <span>{fieldLineText(item)}</span>
+                  <span>confidence: {fmt(item.confidence)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </StatusCard>
       </div>
     </main>

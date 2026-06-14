@@ -90,6 +90,10 @@ brain_node:
       auto_visual_kick_enable_dist_min: 0.2
       auto_visual_kick_enable_dist_max: 4.0
       auto_visual_kick_enable_angle: 0.8
+      enable_rlvk_chase: false
+      rlvk_chase_enable_dist_min: 1.0
+      rlvk_chase_enable_dist_max: 6.0
+      rlvk_chase_enable_angle: 0.8
       enable_auto_visual_defend: false 
       cooperation:
         enable_role_switch: true 
