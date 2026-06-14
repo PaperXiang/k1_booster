@@ -10,7 +10,7 @@
     <include path="./subtrees/subtree_auto_standup_and_locate.xml" />
     <BehaviorTree ID="MainTree">
         <Sequence name="root">
-            <RunOnce><RobocupWalk /></RunOnce>
+            <!-- <RunOnce><RobocupWalk /></RunOnce> -->
             <RunOnce><Script code="control_state=3" /></RunOnce>
             <ReactiveSequence _while="control_state==1 || assist_kick || go_manual || assist_chase" >
                 <Speak text="manual" />
