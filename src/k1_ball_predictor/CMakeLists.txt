@@ -27,10 +27,14 @@ ament_target_dependencies(ball_predictor_node rclcpp vision_interface)
 
 install(TARGETS
   ${PROJECT_NAME}
-  ball_predictor_node
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(TARGETS
+  ball_predictor_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -44,7 +48,7 @@ install(DIRECTORY config launch
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
-ament_export_dependencies(rclcpp)
+ament_export_dependencies(rclcpp vision_interface)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
