@@ -1,0 +1,17 @@
+# Node / frontend dependencies
+node_modules/
+webui/frontend/node_modules/
+
+# Frontend build output
+webui/frontend/dist/
+
+# Python local virtual environments and caches
+.venv/
+webui/backend/.venv/
+__pycache__/
+*.py[cod]
+
+# ROS / colcon generated output
+build/
+install/
+log/

@@ -129,6 +129,10 @@ public:
     // 根据配置返回追球使用的球；预测无效或关闭时自动回退到原始球
     GameObject getBallForChase() const;
 
+    // Publish a lightweight JSON snapshot for the local WebUI bridge.
+    void publishWebuiStatus();
+    string buildWebuiStatusJson();
+
     // robot's largest dist out of border line. negative value if not out of border
     double distToBorder();
 
@@ -327,7 +331,9 @@ private:
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pubSpeak;
     rclcpp::Publisher<brain::msg::Kick>::SharedPtr pubKickBall;
     rclcpp::Publisher<vision_interface::msg::CalParam>::SharedPtr pubCalParam;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pubWebuiStatus;
     rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Time lastWebuiStatusPubTime_{0, 0, RCL_ROS_TIME};
 
     // ------------------------------------------------------ 调试 log 相关 ------------------------------------------------------
     void logObstacleDistance();

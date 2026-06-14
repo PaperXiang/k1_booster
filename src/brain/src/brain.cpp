@@ -1,6 +1,9 @@
 #include <iostream>
 #include <string>
 #include <fstream>  // 添加这一行
+#include <cmath>
+#include <iomanip>
+#include <sstream>
 #include <yaml-cpp/yaml.h>  // 添加这一行
 
 #include "brain.h"
@@ -15,6 +18,90 @@ using namespace std;
 using std::placeholders::_1;
 
 #define SUB_STATE_QUEUE_SIZE 1
+
+namespace {
+
+std::string jsonEscape(const std::string &value) {
+    std::ostringstream oss;
+    for (char ch : value) {
+        switch (ch) {
+        case '"': oss << "\\\""; break;
+        case '\\': oss << "\\\\"; break;
+        case '\b': oss << "\\b"; break;
+        case '\f': oss << "\\f"; break;
+        case '\n': oss << "\\n"; break;
+        case '\r': oss << "\\r"; break;
+        case '\t': oss << "\\t"; break;
+        default:
+            if (static_cast<unsigned char>(ch) < 0x20) {
+                oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(ch);
+            } else {
+                oss << ch;
+            }
+        }
+    }
+    return oss.str();
+}
+
+void appendString(std::ostringstream &oss, const std::string &value) {
+    oss << '"' << jsonEscape(value) << '"';
+}
+
+void appendNumber(std::ostringstream &oss, double value) {
+    if (std::isfinite(value)) {
+        oss << value;
+    } else {
+        oss << "null";
+    }
+}
+
+void appendPose2D(std::ostringstream &oss, const Pose2D &pose) {
+    oss << "{\"x\":";
+    appendNumber(oss, pose.x);
+    oss << ",\"y\":";
+    appendNumber(oss, pose.y);
+    oss << ",\"theta\":";
+    appendNumber(oss, pose.theta);
+    oss << "}";
+}
+
+void appendPoint(std::ostringstream &oss, const Point &point) {
+    oss << "{\"x\":";
+    appendNumber(oss, point.x);
+    oss << ",\"y\":";
+    appendNumber(oss, point.y);
+    oss << ",\"z\":";
+    appendNumber(oss, point.z);
+    oss << "}";
+}
+
+void appendPoint2D(std::ostringstream &oss, const Point2D &point) {
+    oss << "{\"x\":";
+    appendNumber(oss, point.x);
+    oss << ",\"y\":";
+    appendNumber(oss, point.y);
+    oss << "}";
+}
+
+void appendGameObject(std::ostringstream &oss, const GameObject &object) {
+    oss << "{\"label\":";
+    appendString(oss, object.label);
+    oss << ",\"confidence\":";
+    appendNumber(oss, object.confidence);
+    oss << ",\"range\":";
+    appendNumber(oss, object.range);
+    oss << ",\"yaw_to_robot\":";
+    appendNumber(oss, object.yawToRobot);
+    oss << ",\"pitch_to_robot\":";
+    appendNumber(oss, object.pitchToRobot);
+    oss << ",\"pos_to_robot\":";
+    appendPoint(oss, object.posToRobot);
+    oss << ",\"pos_to_field\":";
+    appendPoint(oss, object.posToField);
+    oss << "}";
+}
+
+} // namespace
 
 Brain::Brain() : rclcpp::Node("brain_node")
 {
@@ -235,6 +322,7 @@ void Brain::init()
     pubSoundPlay = create_publisher<std_msgs::msg::String>("/play_sound", 10);
     pubSpeak = create_publisher<std_msgs::msg::String>("/speak", 10);
     pubKickBall = create_publisher<brain::msg::Kick>("/kick_ball", 10);
+    pubWebuiStatus = create_publisher<std_msgs::msg::String>("/brain/status_json", 10);
 }
 
 void Brain::loadConfig()
@@ -376,6 +464,200 @@ void Brain::tick()
     pubKickMsg();
 
     tree->tick();
+    publishWebuiStatus();
+}
+
+void Brain::publishWebuiStatus() {
+    if (!pubWebuiStatus || !data || !config || !tree) {
+        return;
+    }
+
+    auto now = get_clock()->now();
+    if (lastWebuiStatusPubTime_.nanoseconds() != 0 &&
+        (now - lastWebuiStatusPubTime_).seconds() < 0.1) {
+        return;
+    }
+    lastWebuiStatusPubTime_ = now;
+
+    std_msgs::msg::String msg;
+    msg.data = buildWebuiStatusJson();
+    pubWebuiStatus->publish(msg);
+}
+
+string Brain::buildWebuiStatusJson() {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(3);
+
+    const auto now = get_clock()->now();
+    const int selfIdx = config->playerId - 1;
+    const bool selfPenaltyValid = selfIdx >= 0 && selfIdx < HL_MAX_NUM_PLAYERS;
+    const int selfPenalty = selfPenaltyValid ? data->penalty[selfIdx] : -1;
+    const string decision = tree->getEntry<string>("decision");
+    const string defendDecision = tree->getEntry<string>("defend_decision");
+    const bool ballLocationKnown = tree->getEntry<bool>("ball_location_known");
+    const bool tmBallReliable = tree->getEntry<bool>("tm_ball_pos_reliable");
+    const bool ballOut = tree->getEntry<bool>("ball_out");
+    const bool odomCalibrated = tree->getEntry<bool>("odom_calibrated");
+    const bool isLeadEntry = tree->getEntry<bool>("is_lead");
+    const bool goManual = tree->getEntry<bool>("go_manual");
+
+    oss << "{";
+    oss << "\"timestamp\":";
+    appendNumber(oss, now.seconds());
+
+    oss << ",\"robot\":{\"team_id\":" << config->teamId;
+    oss << ",\"player_id\":" << config->playerId;
+    oss << ",\"field_type\":";
+    appendString(oss, config->fieldType);
+    oss << ",\"role_config\":";
+    appendString(oss, config->playerRole);
+    oss << ",\"role_current\":";
+    appendString(oss, tree->getEntry<string>("player_role"));
+    oss << ",\"go_manual\":" << (goManual ? "true" : "false");
+    oss << ",\"recovery_state\":" << static_cast<int>(data->recoveryState);
+    oss << ",\"recovery_available\":" << (data->isRecoveryAvailable ? "true" : "false");
+    oss << ",\"mode_index\":" << data->currentRobotModeIndex;
+    oss << "}";
+
+    oss << ",\"game\":{\"state\":";
+    appendString(oss, tree->getEntry<string>("gc_game_state"));
+    oss << ",\"sub_state_type\":";
+    appendString(oss, tree->getEntry<string>("gc_game_sub_state_type"));
+    oss << ",\"sub_state\":";
+    appendString(oss, tree->getEntry<string>("gc_game_sub_state"));
+    oss << ",\"real_sub_state\":";
+    appendString(oss, data->realGameSubState);
+    oss << ",\"is_kickoff_side\":" << (tree->getEntry<bool>("gc_is_kickoff_side") ? "true" : "false");
+    oss << ",\"is_sub_state_kickoff_side\":" << (tree->getEntry<bool>("gc_is_sub_state_kickoff_side") ? "true" : "false");
+    oss << ",\"under_penalty\":" << (tree->getEntry<bool>("gc_is_under_penalty") ? "true" : "false");
+    oss << ",\"self_penalty\":" << selfPenalty;
+    oss << ",\"score\":" << data->score;
+    oss << ",\"oppo_score\":" << data->oppoScore;
+    oss << ",\"live_count\":" << data->liveCount;
+    oss << ",\"oppo_live_count\":" << data->oppoLiveCount;
+    oss << ",\"is_kicking_off\":" << (data->isKickingOff ? "true" : "false");
+    oss << ",\"is_freekick_kicking_off\":" << (data->isFreekickKickingOff ? "true" : "false");
+    oss << ",\"wait_for_opponent_kickoff\":" << (tree->getEntry<bool>("wait_for_opponent_kickoff") ? "true" : "false");
+    oss << "}";
+
+    oss << ",\"behavior\":{\"decision\":";
+    appendString(oss, decision);
+    oss << ",\"defend_decision\":";
+    appendString(oss, defendDecision);
+    oss << ",\"is_chase\":" << (decision == "chase" ? "true" : "false");
+    oss << ",\"is_adjust\":" << (decision == "adjust" ? "true" : "false");
+    oss << ",\"is_rl_visual_kick\":" << (decision == "auto_visual_kick" || data->tmImInVisualKick ? "true" : "false");
+    oss << ",\"visual_kick_version\":";
+    appendString(oss, config->RLVisionKickVisualKickVersion);
+    oss << ",\"should_exit_rl_visual_kick\":" << (data->shouldExitRLVisionKick ? "true" : "false");
+    oss << ",\"ball_location_known\":" << (ballLocationKnown ? "true" : "false");
+    oss << ",\"tm_ball_pos_reliable\":" << (tmBallReliable ? "true" : "false");
+    oss << ",\"ball_out\":" << (ballOut ? "true" : "false");
+    oss << ",\"odom_calibrated\":" << (odomCalibrated ? "true" : "false");
+    oss << ",\"is_lead_entry\":" << (isLeadEntry ? "true" : "false");
+    oss << ",\"tm_im_lead\":" << (data->tmImLead ? "true" : "false");
+    oss << ",\"tm_im_alive\":" << (data->tmImAlive ? "true" : "false");
+    oss << ",\"tm_my_cost\":";
+    appendNumber(oss, data->tmMyCost);
+    oss << ",\"tm_my_cost_rank\":" << data->tmMyCostRank;
+    oss << "}";
+
+    oss << ",\"pose\":{\"field\":";
+    appendPose2D(oss, data->robotPoseToField);
+    oss << ",\"odom\":";
+    appendPose2D(oss, data->robotPoseToOdom);
+    oss << ",\"odom_to_field\":";
+    appendPose2D(oss, data->odomToField);
+    oss << ",\"head\":{\"pitch\":";
+    appendNumber(oss, data->headPitch);
+    oss << ",\"yaw\":";
+    appendNumber(oss, data->headYaw);
+    oss << "}}";
+
+    oss << ",\"ball\":{\"detected\":" << (data->ballDetected ? "true" : "false");
+    oss << ",\"known\":" << (ballLocationKnown ? "true" : "false");
+    oss << ",\"current\":";
+    appendGameObject(oss, data->ball);
+    oss << ",\"kick_dir\":";
+    appendNumber(oss, data->kickDir);
+    oss << ",\"kick_type\":";
+    appendString(oss, data->kickType);
+    oss << ",\"robot_ball_angle_to_field\":";
+    appendNumber(oss, data->robotBallAngleToField);
+    oss << "}";
+
+    oss << ",\"prediction\":{\"enabled\":" << (config->ballPredictionEnable ? "true" : "false");
+    oss << ",\"use_for_chase\":" << (config->ballPredictionUseForChase ? "true" : "false");
+    oss << ",\"valid\":" << (data->ballPredictionValid ? "true" : "false");
+    oss << ",\"predicted_only\":" << (data->ballPredictionPredictedOnly ? "true" : "false");
+    oss << ",\"filtered_ball\":";
+    appendGameObject(oss, data->filteredBall);
+    oss << ",\"predicted_ball\":";
+    appendGameObject(oss, data->predictedBall);
+    oss << ",\"velocity\":";
+    appendPoint2D(oss, data->ballVelocityToField);
+    oss << ",\"acceleration\":";
+    appendPoint2D(oss, data->ballAccelerationToField);
+    oss << ",\"trajectory\":[";
+    for (size_t i = 0; i < data->predictedBallPos.size(); ++i) {
+        if (i > 0) oss << ",";
+        oss << "{\"x\":";
+        appendNumber(oss, data->predictedBallPos[i][0]);
+        oss << ",\"y\":";
+        appendNumber(oss, data->predictedBallPos[i][1]);
+        oss << "}";
+    }
+    oss << "]}";
+
+    oss << ",\"team\":{\"enable_com\":" << (config->enableCom ? "true" : "false");
+    oss << ",\"tm_ip\":";
+    appendString(oss, data->tmIP);
+    oss << ",\"send_id\":" << data->sendId;
+    oss << ",\"ms_since_send\":";
+    appendNumber(oss, msecsSince(data->sendTime));
+    oss << ",\"teammates\":[";
+    for (int i = 0; i < HL_MAX_NUM_PLAYERS; ++i) {
+        if (i > 0) oss << ",";
+        const auto &tm = data->tmStatus[i];
+        oss << "{\"player_id\":" << (i + 1);
+        oss << ",\"role\":";
+        appendString(oss, tm.role);
+        oss << ",\"alive\":" << (tm.isAlive ? "true" : "false");
+        oss << ",\"lead\":" << (tm.isLead ? "true" : "false");
+        oss << ",\"ball_detected\":" << (tm.ballDetected ? "true" : "false");
+        oss << ",\"ball_location_known\":" << (tm.ballLocationKnown ? "true" : "false");
+        oss << ",\"ball_confidence\":";
+        appendNumber(oss, tm.ballConfidence);
+        oss << ",\"ball_range\":";
+        appendNumber(oss, tm.ballRange);
+        oss << ",\"cost\":";
+        appendNumber(oss, tm.cost);
+        oss << ",\"robot_pose_to_field\":";
+        appendPose2D(oss, tm.robotPoseToField);
+        oss << ",\"ball_pos_to_field\":";
+        appendPoint(oss, tm.ballPosToField);
+        oss << ",\"ms_since_com\":";
+        appendNumber(oss, msecsSince(tm.timeLastCom));
+        oss << "}";
+    }
+    oss << "]}";
+
+    oss << ",\"health\":{\"cam_connected\":" << (data->camConnected ? "true" : "false");
+    oss << ",\"ms_since_detection\":";
+    appendNumber(oss, msecsSince(data->timeLastDet));
+    oss << ",\"ms_since_line_detection\":";
+    appendNumber(oss, msecsSince(data->timeLastLineDet));
+    oss << ",\"ms_since_gamecontroller\":";
+    appendNumber(oss, msecsSince(data->timeLastGamecontrolMsg));
+    oss << ",\"ms_since_localize\":";
+    appendNumber(oss, msecsSince(data->lastSuccessfulLocalizeTime));
+    oss << ",\"robot_count\":" << data->getRobots().size();
+    oss << ",\"obstacle_count\":" << data->getObstacles().size();
+    oss << ",\"goalpost_count\":" << data->getGoalposts().size();
+    oss << "}";
+
+    oss << "}";
+    return oss.str();
 }
 
 void Brain::pubKickMsg() {

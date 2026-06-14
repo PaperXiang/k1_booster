@@ -1,0 +1,7 @@
+webui_client_node:
+  ros__parameters:
+    robot_id: "k1-robot"
+    server_base_url: "http://192.168.15.21:8000"
+    heartbeat_period_sec: 1.0
+    telemetry_period_sec: 0.2
+    request_timeout_sec: 0.5
