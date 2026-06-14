@@ -37,6 +37,8 @@ nohup ros2 launch brain launch.py vision_config_path:=/opt/booster "$@" > brain.
 # nohup ros2 launch brain launch.py "$@"  > brain.log 2>&1 &
 echo "[START GAME_CONTROLLER]"
 nohup ros2 launch game_controller launch.py > game_controller.log 2>&1 &
+echo "[START WEBUI_CLIENT]"
+nohup ros2 launch k1_robot_webui_client webui_client.launch.py > webui_client.log 2>&1 &
 #echo "[START SOUND]"
 #nohup ros2 run sound_play sound_play_node > sound.log 2>&1 &
 echo "[DONE]"
