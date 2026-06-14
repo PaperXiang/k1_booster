@@ -1,0 +1,22 @@
+ball_predictor_node:
+  ros__parameters:
+    enable: true
+    input_ball_topic: "/booster_vision/ball"
+    filtered_ball_topic: "/k1_ball_predictor/ball_filtered"
+    predicted_ball_topic: "/k1_ball_predictor/ball_predicted"
+    predict_time: 0.25
+    min_dt: 0.02
+    max_dt: 0.20
+    max_history_gap: 0.50
+    max_speed: 4.0
+    max_acceleration: 8.0
+    enable_kalman: true
+    process_noise_position: 0.03
+    process_noise_velocity: 0.60
+    measurement_noise: 0.06
+    initial_covariance: 1.0
+    lost_prediction_timeout: 0.4
+    max_jump_distance: 1.2
+    max_jump_speed: 6.0
+    trajectory_step: 0.1
+    trajectory_count: 20
