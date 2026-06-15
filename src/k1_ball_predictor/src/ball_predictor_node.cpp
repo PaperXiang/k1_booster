@@ -17,7 +17,11 @@ k1_ball_predictor::Config loadConfig(rclcpp::Node &node) {
     config.max_history_gap = node.declare_parameter<double>("max_history_gap", 0.50);
     config.max_speed = node.declare_parameter<double>("max_speed", 4.0);
     config.max_acceleration = node.declare_parameter<double>("max_acceleration", 8.0);
+    config.min_confidence = node.declare_parameter<double>("min_confidence", 40.0);
+    config.confidence_full = node.declare_parameter<double>("confidence_full", 100.0);
+    config.confidence_noise_gain = node.declare_parameter<double>("confidence_noise_gain", 2.0);
     config.enable_kalman = node.declare_parameter<bool>("enable_kalman", true);
+    config.prefer_kalman_velocity = node.declare_parameter<bool>("prefer_kalman_velocity", true);
     config.process_noise_position = node.declare_parameter<double>("process_noise_position", 0.03);
     config.process_noise_velocity = node.declare_parameter<double>("process_noise_velocity", 0.60);
     config.measurement_noise = node.declare_parameter<double>("measurement_noise", 0.06);
@@ -25,6 +29,10 @@ k1_ball_predictor::Config loadConfig(rclcpp::Node &node) {
     config.lost_prediction_timeout = node.declare_parameter<double>("lost_prediction_timeout", 0.4);
     config.max_jump_distance = node.declare_parameter<double>("max_jump_distance", 1.2);
     config.max_jump_speed = node.declare_parameter<double>("max_jump_speed", 6.0);
+    config.velocity_smoothing = node.declare_parameter<double>("velocity_smoothing", 0.5);
+    config.acceleration_smoothing = node.declare_parameter<double>("acceleration_smoothing", 0.6);
+    config.min_motion_speed = node.declare_parameter<double>("min_motion_speed", 0.05);
+    config.acceleration_prediction_scale = node.declare_parameter<double>("acceleration_prediction_scale", 0.0);
     config.trajectory_step = node.declare_parameter<double>("trajectory_step", 0.1);
     config.trajectory_count = node.declare_parameter<int>("trajectory_count", 20);
     return config;
@@ -56,7 +64,7 @@ private:
         observation.stamp = rclcpp::Time(msg->header.stamp);
         observation.position = k1_ball_predictor::Point2D{msg->x, msg->y};
         observation.confidence = msg->confidence;
-        observation.reliable = msg->confidence > 0.0;
+        observation.reliable = msg->confidence >= predictor_.config().min_confidence;
 
         auto result = predictor_.update(observation);
         if (!result.valid) {

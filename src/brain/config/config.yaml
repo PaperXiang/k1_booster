@@ -26,7 +26,15 @@ brain_node:
       max_history_gap: 0.50
       max_speed: 4.0
       max_acceleration: 8.0
+      # 定位球/边线球/出界阶段默认不让预测球接管追球，避免不开边线球。
+      disable_for_set_play_chase: true
+      # 预测链路最低置信度。brain 侧还会同时满足 strategy.ball_confidence_threshold。
+      min_confidence: 40.0
+      confidence_full: 100.0
+      # 置信度越低，Kalman 测量噪声越大，低置信度观测权重越小。
+      confidence_noise_gain: 2.0
       enable_kalman: true
+      prefer_kalman_velocity: true
       process_noise_position: 0.03
       process_noise_velocity: 0.60
       measurement_noise: 0.06
@@ -34,6 +42,11 @@ brain_node:
       lost_prediction_timeout: 0.4
       max_jump_distance: 1.2
       max_jump_speed: 6.0
+      velocity_smoothing: 0.5
+      acceleration_smoothing: 0.6
+      min_motion_speed: 0.05
+      # 默认不把差分加速度用于未来点，减少轨迹随机转向/抖动。
+      acceleration_prediction_scale: 0.0
       trajectory_step: 0.1
       trajectory_count: 20
       

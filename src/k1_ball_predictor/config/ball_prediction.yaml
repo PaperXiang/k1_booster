@@ -10,7 +10,11 @@ ball_predictor_node:
     max_history_gap: 0.50
     max_speed: 4.0
     max_acceleration: 8.0
+    min_confidence: 40.0
+    confidence_full: 100.0
+    confidence_noise_gain: 2.0
     enable_kalman: true
+    prefer_kalman_velocity: true
     process_noise_position: 0.03
     process_noise_velocity: 0.60
     measurement_noise: 0.06
@@ -18,5 +22,9 @@ ball_predictor_node:
     lost_prediction_timeout: 0.4
     max_jump_distance: 1.2
     max_jump_speed: 6.0
+    velocity_smoothing: 0.5
+    acceleration_smoothing: 0.6
+    min_motion_speed: 0.05
+    acceleration_prediction_scale: 0.0
     trajectory_step: 0.1
     trajectory_count: 20

@@ -20,7 +20,11 @@ struct Config {
     double max_history_gap = 0.50;
     double max_speed = 4.0;
     double max_acceleration = 8.0;
+    double min_confidence = 40.0;
+    double confidence_full = 100.0;
+    double confidence_noise_gain = 2.0;
     bool enable_kalman = true;
+    bool prefer_kalman_velocity = true;
     double process_noise_position = 0.03;
     double process_noise_velocity = 0.60;
     double measurement_noise = 0.06;
@@ -28,6 +32,10 @@ struct Config {
     double lost_prediction_timeout = 0.4;
     double max_jump_distance = 1.2;
     double max_jump_speed = 6.0;
+    double velocity_smoothing = 0.5;
+    double acceleration_smoothing = 0.6;
+    double min_motion_speed = 0.05;
+    double acceleration_prediction_scale = 0.0;
     double trajectory_step = 0.1;
     int trajectory_count = 20;
 };
@@ -75,7 +83,7 @@ private:
 
     void initializeKalman(const Point2D &position);
     void predictKalman(double dt);
-    void correctKalman(const Point2D &position);
+    void correctKalman(const Point2D &position, double confidence);
     Result predictOnly(const rclcpp::Time &stamp);
     bool isOutlier(const Observation &observation, double dt) const;
     std::vector<Point2D> buildTrajectory(const Point2D &start,
@@ -86,9 +94,11 @@ private:
     KalmanState kalman_;
     bool has_last_sample_ = false;
     bool has_last_velocity_ = false;
+    bool has_last_acceleration_ = false;
     rclcpp::Time last_stamp_;
     Point2D last_position_;
     Point2D last_velocity_;
+    Point2D last_acceleration_;
 };
 
 } // namespace k1_ball_predictor

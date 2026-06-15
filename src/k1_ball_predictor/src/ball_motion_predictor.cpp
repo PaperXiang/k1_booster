@@ -26,6 +26,16 @@ Point2D limitNorm(Point2D value, double max_norm) {
     return Point2D{value.x * scale, value.y * scale};
 }
 
+Point2D blend(Point2D previous, Point2D current, double previous_weight) {
+    double weight = std::clamp(previous_weight, 0.0, 1.0);
+    return Point2D{previous.x * weight + current.x * (1.0 - weight),
+                   previous.y * weight + current.y * (1.0 - weight)};
+}
+
+Point2D scale(Point2D value, double factor) {
+    return Point2D{value.x * factor, value.y * factor};
+}
+
 } // namespace
 
 BallMotionPredictor::BallMotionPredictor(const Config &config) : config_(config) {
@@ -45,8 +55,10 @@ void BallMotionPredictor::reset() {
     kalman_ = KalmanState{};
     has_last_sample_ = false;
     has_last_velocity_ = false;
+    has_last_acceleration_ = false;
     last_position_ = Point2D{};
     last_velocity_ = Point2D{};
+    last_acceleration_ = Point2D{};
 }
 
 void BallMotionPredictor::initializeKalman(const Point2D &position) {
@@ -103,13 +115,22 @@ void BallMotionPredictor::predictKalman(double dt) {
     }
 }
 
-void BallMotionPredictor::correctKalman(const Point2D &position) {
+void BallMotionPredictor::correctKalman(const Point2D &position, double confidence) {
     if (!kalman_.initialized) {
         initializeKalman(position);
         return;
     }
 
     double measurement_noise = std::max(1e-9, config_.measurement_noise);
+    if (config_.confidence_noise_gain > 0.0
+        && config_.confidence_full > config_.min_confidence
+        && std::isfinite(confidence)) {
+        double confidence_ratio = std::clamp(
+            (confidence - config_.min_confidence) / (config_.confidence_full - config_.min_confidence),
+            0.0,
+            1.0);
+        measurement_noise *= 1.0 + config_.confidence_noise_gain * (1.0 - confidence_ratio);
+    }
     double s00 = kalman_.covariance[0][0] + measurement_noise;
     double s01 = kalman_.covariance[0][1];
     double s10 = kalman_.covariance[1][0];
@@ -210,11 +231,17 @@ Result BallMotionPredictor::predictOnly(const rclcpp::Time &stamp) {
         return result;
     }
 
-    result.filtered_position = last_position_;
+    Point2D current_position{last_position_.x + last_velocity_.x * dt,
+                             last_position_.y + last_velocity_.y * dt};
+
+    result.filtered_position = current_position;
     result.velocity = last_velocity_;
-    result.predicted_position = Point2D{last_position_.x + last_velocity_.x * dt,
-                                        last_position_.y + last_velocity_.y * dt};
-    result.trajectory = buildTrajectory(result.predicted_position, result.velocity, result.acceleration);
+    double predict_time = std::max(0.0, config_.predict_time);
+    Point2D prediction_acceleration = scale(result.acceleration,
+                                            std::clamp(config_.acceleration_prediction_scale, 0.0, 1.0));
+    result.predicted_position = Point2D{current_position.x + last_velocity_.x * predict_time,
+                                        current_position.y + last_velocity_.y * predict_time};
+    result.trajectory = buildTrajectory(current_position, result.velocity, prediction_acceleration);
     result.valid = true;
     return result;
 }
@@ -235,7 +262,11 @@ Result BallMotionPredictor::update(const Observation &observation) {
         reset();
         return result;
     }
-    if (!observation.reliable) {
+    bool reliable = observation.reliable;
+    if (config_.min_confidence > 0.0 && observation.confidence < config_.min_confidence) {
+        reliable = false;
+    }
+    if (!reliable) {
         return predictOnly(observation.stamp);
     }
 
@@ -260,7 +291,7 @@ Result BallMotionPredictor::update(const Observation &observation) {
         } else if (valid_dt) {
             predictKalman(dt);
         }
-        correctKalman(observation.position);
+        correctKalman(observation.position, observation.confidence);
         filtered = Point2D{kalman_.x, kalman_.y};
         result.velocity = limitNorm(Point2D{kalman_.vx, kalman_.vy}, config_.max_speed);
     }
@@ -268,22 +299,42 @@ Result BallMotionPredictor::update(const Observation &observation) {
 
     if (valid_dt) {
         Point2D velocity{(filtered.x - last_position_.x) / dt, (filtered.y - last_position_.y) / dt};
+        if (config_.enable_kalman && config_.prefer_kalman_velocity) {
+            velocity = Point2D{kalman_.vx, kalman_.vy};
+        }
         velocity = limitNorm(velocity, config_.max_speed);
+        if (has_last_velocity_) {
+            velocity = blend(last_velocity_, velocity, config_.velocity_smoothing);
+        }
+        if (config_.min_motion_speed > 0.0 && norm(velocity) < config_.min_motion_speed) {
+            velocity = Point2D{};
+        }
         result.velocity = velocity;
         if (has_last_velocity_) {
             Point2D acceleration{(velocity.x - last_velocity_.x) / dt, (velocity.y - last_velocity_.y) / dt};
-            result.acceleration = limitNorm(acceleration, config_.max_acceleration);
+            acceleration = limitNorm(acceleration, config_.max_acceleration);
+            if (has_last_acceleration_) {
+                acceleration = blend(last_acceleration_, acceleration, config_.acceleration_smoothing);
+            }
+            if (config_.min_motion_speed > 0.0 && norm(velocity) < config_.min_motion_speed) {
+                acceleration = Point2D{};
+            }
+            result.acceleration = acceleration;
+            last_acceleration_ = acceleration;
+            has_last_acceleration_ = true;
         }
         last_velocity_ = velocity;
         has_last_velocity_ = true;
     }
 
     double predict_time = std::max(0.0, config_.predict_time);
+    Point2D prediction_acceleration = scale(result.acceleration,
+                                            std::clamp(config_.acceleration_prediction_scale, 0.0, 1.0));
     result.predicted_position = Point2D{
-        filtered.x + result.velocity.x * predict_time + 0.5 * result.acceleration.x * predict_time * predict_time,
-        filtered.y + result.velocity.y * predict_time + 0.5 * result.acceleration.y * predict_time * predict_time,
+        filtered.x + result.velocity.x * predict_time + 0.5 * prediction_acceleration.x * predict_time * predict_time,
+        filtered.y + result.velocity.y * predict_time + 0.5 * prediction_acceleration.y * predict_time * predict_time,
     };
-    result.trajectory = buildTrajectory(filtered, result.velocity, result.acceleration);
+    result.trajectory = buildTrajectory(filtered, result.velocity, prediction_acceleration);
     result.valid = isFinite(result.predicted_position);
 
     has_last_sample_ = true;

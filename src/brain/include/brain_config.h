@@ -114,7 +114,12 @@ public:
     double ballPredictionMaxHistoryGap = 0.50;
     double ballPredictionMaxSpeed = 4.0;
     double ballPredictionMaxAcceleration = 8.0;
+    bool ballPredictionDisableForSetPlayChase = true;
+    double ballPredictionMinConfidence = 40.0;
+    double ballPredictionConfidenceFull = 100.0;
+    double ballPredictionConfidenceNoiseGain = 2.0;
     bool ballPredictionEnableKalman = true;
+    bool ballPredictionPreferKalmanVelocity = true;
     double ballPredictionProcessNoisePosition = 0.03;
     double ballPredictionProcessNoiseVelocity = 0.60;
     double ballPredictionMeasurementNoise = 0.06;
@@ -122,6 +127,10 @@ public:
     double ballPredictionLostTimeout = 0.4;
     double ballPredictionMaxJumpDistance = 1.2;
     double ballPredictionMaxJumpSpeed = 6.0;
+    double ballPredictionVelocitySmoothing = 0.5;
+    double ballPredictionAccelerationSmoothing = 0.6;
+    double ballPredictionMinMotionSpeed = 0.05;
+    double ballPredictionAccelerationPredictionScale = 0.0;
     double ballPredictionTrajectoryStep = 0.1;
     int ballPredictionTrajectoryCount = 20;
 

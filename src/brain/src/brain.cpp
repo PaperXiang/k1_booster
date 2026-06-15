@@ -2,6 +2,7 @@
 #include <string>
 #include <fstream>  // 添加这一行
 #include <cmath>
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 #include <yaml-cpp/yaml.h>  // 添加这一行
@@ -263,7 +264,12 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("ball_prediction.max_history_gap", 0.50);
     declare_parameter<double>("ball_prediction.max_speed", 4.0);
     declare_parameter<double>("ball_prediction.max_acceleration", 8.0);
+    declare_parameter<bool>("ball_prediction.disable_for_set_play_chase", true);
+    declare_parameter<double>("ball_prediction.min_confidence", 40.0);
+    declare_parameter<double>("ball_prediction.confidence_full", 100.0);
+    declare_parameter<double>("ball_prediction.confidence_noise_gain", 2.0);
     declare_parameter<bool>("ball_prediction.enable_kalman", true);
+    declare_parameter<bool>("ball_prediction.prefer_kalman_velocity", true);
     declare_parameter<double>("ball_prediction.process_noise_position", 0.03);
     declare_parameter<double>("ball_prediction.process_noise_velocity", 0.60);
     declare_parameter<double>("ball_prediction.measurement_noise", 0.06);
@@ -271,6 +277,10 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("ball_prediction.lost_prediction_timeout", 0.4);
     declare_parameter<double>("ball_prediction.max_jump_distance", 1.2);
     declare_parameter<double>("ball_prediction.max_jump_speed", 6.0);
+    declare_parameter<double>("ball_prediction.velocity_smoothing", 0.5);
+    declare_parameter<double>("ball_prediction.acceleration_smoothing", 0.6);
+    declare_parameter<double>("ball_prediction.min_motion_speed", 0.05);
+    declare_parameter<double>("ball_prediction.acceleration_prediction_scale", 0.0);
     declare_parameter<double>("ball_prediction.trajectory_step", 0.1);
     declare_parameter<int>("ball_prediction.trajectory_count", 20);
 
@@ -378,7 +388,11 @@ void Brain::init()
     ballPredictorConfig.max_history_gap = config->ballPredictionMaxHistoryGap;
     ballPredictorConfig.max_speed = config->ballPredictionMaxSpeed;
     ballPredictorConfig.max_acceleration = config->ballPredictionMaxAcceleration;
+    ballPredictorConfig.min_confidence = config->ballPredictionMinConfidence;
+    ballPredictorConfig.confidence_full = config->ballPredictionConfidenceFull;
+    ballPredictorConfig.confidence_noise_gain = config->ballPredictionConfidenceNoiseGain;
     ballPredictorConfig.enable_kalman = config->ballPredictionEnableKalman;
+    ballPredictorConfig.prefer_kalman_velocity = config->ballPredictionPreferKalmanVelocity;
     ballPredictorConfig.process_noise_position = config->ballPredictionProcessNoisePosition;
     ballPredictorConfig.process_noise_velocity = config->ballPredictionProcessNoiseVelocity;
     ballPredictorConfig.measurement_noise = config->ballPredictionMeasurementNoise;
@@ -386,6 +400,10 @@ void Brain::init()
     ballPredictorConfig.lost_prediction_timeout = config->ballPredictionLostTimeout;
     ballPredictorConfig.max_jump_distance = config->ballPredictionMaxJumpDistance;
     ballPredictorConfig.max_jump_speed = config->ballPredictionMaxJumpSpeed;
+    ballPredictorConfig.velocity_smoothing = config->ballPredictionVelocitySmoothing;
+    ballPredictorConfig.acceleration_smoothing = config->ballPredictionAccelerationSmoothing;
+    ballPredictorConfig.min_motion_speed = config->ballPredictionMinMotionSpeed;
+    ballPredictorConfig.acceleration_prediction_scale = config->ballPredictionAccelerationPredictionScale;
     ballPredictorConfig.trajectory_step = config->ballPredictionTrajectoryStep;
     ballPredictorConfig.trajectory_count = config->ballPredictionTrajectoryCount;
     ballPredictor = std::make_shared<k1_ball_predictor::BallMotionPredictor>(ballPredictorConfig);
@@ -477,7 +495,12 @@ void Brain::loadConfig()
     get_parameter("ball_prediction.max_history_gap", config->ballPredictionMaxHistoryGap);
     get_parameter("ball_prediction.max_speed", config->ballPredictionMaxSpeed);
     get_parameter("ball_prediction.max_acceleration", config->ballPredictionMaxAcceleration);
+    get_parameter("ball_prediction.disable_for_set_play_chase", config->ballPredictionDisableForSetPlayChase);
+    get_parameter("ball_prediction.min_confidence", config->ballPredictionMinConfidence);
+    get_parameter("ball_prediction.confidence_full", config->ballPredictionConfidenceFull);
+    get_parameter("ball_prediction.confidence_noise_gain", config->ballPredictionConfidenceNoiseGain);
     get_parameter("ball_prediction.enable_kalman", config->ballPredictionEnableKalman);
+    get_parameter("ball_prediction.prefer_kalman_velocity", config->ballPredictionPreferKalmanVelocity);
     get_parameter("ball_prediction.process_noise_position", config->ballPredictionProcessNoisePosition);
     get_parameter("ball_prediction.process_noise_velocity", config->ballPredictionProcessNoiseVelocity);
     get_parameter("ball_prediction.measurement_noise", config->ballPredictionMeasurementNoise);
@@ -485,6 +508,10 @@ void Brain::loadConfig()
     get_parameter("ball_prediction.lost_prediction_timeout", config->ballPredictionLostTimeout);
     get_parameter("ball_prediction.max_jump_distance", config->ballPredictionMaxJumpDistance);
     get_parameter("ball_prediction.max_jump_speed", config->ballPredictionMaxJumpSpeed);
+    get_parameter("ball_prediction.velocity_smoothing", config->ballPredictionVelocitySmoothing);
+    get_parameter("ball_prediction.acceleration_smoothing", config->ballPredictionAccelerationSmoothing);
+    get_parameter("ball_prediction.min_motion_speed", config->ballPredictionMinMotionSpeed);
+    get_parameter("ball_prediction.acceleration_prediction_scale", config->ballPredictionAccelerationPredictionScale);
     get_parameter("ball_prediction.trajectory_step", config->ballPredictionTrajectoryStep);
     get_parameter("ball_prediction.trajectory_count", config->ballPredictionTrajectoryCount);
 
@@ -1488,7 +1515,7 @@ void Brain::updateBallPrediction() {
     observation.confidence = data->ball.confidence;
     observation.reliable = data->ballDetected
         && tree->getEntry<bool>("ball_location_known")
-        && data->ball.confidence >= config->ballConfidenceThreshold;
+        && data->ball.confidence >= std::max(config->ballConfidenceThreshold, config->ballPredictionMinConfidence);
 
     auto result = ballPredictor->update(observation);
     data->ballPredictionValid = result.valid;
@@ -1519,8 +1546,11 @@ void Brain::updateBallPrediction() {
 }
 
 GameObject Brain::getBallForChase() const {
+    bool isSetPlay = tree->getEntry<string>("gc_game_sub_state_type") != "NONE";
+    bool ballOut = tree->getEntry<bool>("ball_out");
     if (config->ballPredictionEnable
         && config->ballPredictionUseForChase
+        && !(config->ballPredictionDisableForSetPlayChase && (isSetPlay || ballOut))
         && data->ballPredictionValid) {
         return data->predictedBall;
     }

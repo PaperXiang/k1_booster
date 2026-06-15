@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Interactive shortcut for common K1 demo network/player settings."""
+"""K1 演示常用网络/球员配置的交互式快捷工具。"""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ GC_LAUNCH = ROOT / "src" / "game_controller" / "launch" / "launch.py"
 
 
 def print_usage() -> None:
-    print("Usage: python configure_demo.py")
+    print("用法: python configure_demo.py")
     print()
-    print("Interactive shortcut for editing:")
+    print("交互式快捷修改以下配置:")
     print("  src/brain/config/config.yaml: team_id, player_id, number_of_players, game_control_ip")
     print("  src/k1_robot_webui_client/config/webui_client.yaml: server_base_url")
     print("  src/game_controller/launch/launch.py: ip_white_list")
@@ -44,7 +44,7 @@ def normalize_server_url(value: str) -> str:
 
 def read_file(path: Path) -> str:
     if not path.exists():
-        raise FileNotFoundError(f"Missing file: {path}")
+        raise FileNotFoundError(f"缺少文件: {path}")
     return path.read_text(encoding="utf-8")
 
 
@@ -74,13 +74,13 @@ def ask_int(prompt: str, default: str, minimum: int | None = None, maximum: int 
         try:
             parsed = int(value)
         except ValueError:
-            print("Please enter an integer.")
+            print("请输入整数。")
             continue
         if minimum is not None and parsed < minimum:
-            print(f"Value must be >= {minimum}.")
+            print(f"数值必须 >= {minimum}。")
             continue
         if maximum is not None and parsed > maximum:
-            print(f"Value must be <= {maximum}.")
+            print(f"数值必须 <= {maximum}。")
             continue
         return str(parsed)
 
@@ -95,7 +95,7 @@ def replace_yaml_scalar(text: str, key: str, value: str, quoted: bool = False) -
 
     new_text, count = pattern.subn(repl, text, count=1)
     if count != 1:
-        raise ValueError(f"Could not find YAML key: {key}")
+        raise ValueError(f"找不到 YAML 键: {key}")
     return new_text
 
 
@@ -107,23 +107,23 @@ def replace_launch_whitelist_ip(text: str, ip: str) -> str:
 
     new_text, count = pattern.subn(repl, text, count=1)
     if count != 1:
-        raise ValueError("Could not find launch.py ip_white_list entry")
+        raise ValueError("找不到 launch.py 中的 ip_white_list 条目")
     return new_text
 
 
 def backup(path: Path, stamp: str) -> None:
     backup_path = path.with_name(f"{path.name}.bak.{stamp}")
     shutil.copy2(path, backup_path)
-    print(f"backup: {path.relative_to(ROOT)} -> {backup_path.relative_to(ROOT)}")
+    print(f"已备份: {path.relative_to(ROOT)} -> {backup_path.relative_to(ROOT)}")
 
 
 def write_if_changed(path: Path, old_text: str, new_text: str, stamp: str) -> None:
     if old_text == new_text:
-        print(f"unchanged: {path.relative_to(ROOT)}")
+        print(f"未变化: {path.relative_to(ROOT)}")
         return
     backup(path, stamp)
     path.write_text(new_text, encoding="utf-8", newline="")
-    print(f"updated: {path.relative_to(ROOT)}")
+    print(f"已更新: {path.relative_to(ROOT)}")
 
 
 def main() -> int:
@@ -141,26 +141,26 @@ def main() -> int:
     current_gc_ip = find_yaml_value(brain_text, "game_control_ip", find_launch_ip(launch_text, "192.168.74.2"))
     current_server = find_server_url(webui_text)
 
-    print("K1 demo quick config")
-    print(f"workspace: {ROOT}")
+    print("K1 演示快速配置")
+    print(f"工作目录: {ROOT}")
     print()
 
     team_id = ask_int("team_id", current_team_id, minimum=0)
     player_id = ask_int("player_id", current_player_id, minimum=1, maximum=5)
     number_of_players = ask_int("number_of_players", current_players, minimum=1, maximum=5)
     game_control_ip = ask_value("GameController IP", current_gc_ip)
-    server_base_url = normalize_server_url(ask_value("Windows WebUI backend IP or URL", current_server))
+    server_base_url = normalize_server_url(ask_value("Windows WebUI 后端 IP 或 URL", current_server))
 
     print()
-    print("Will apply:")
+    print("将应用以下配置:")
     print(f"  team_id: {team_id}")
     print(f"  player_id: {player_id}")
     print(f"  number_of_players: {number_of_players}")
     print(f"  game_control_ip / ip_white_list: {game_control_ip}")
     print(f"  server_base_url: {server_base_url}")
-    confirm = input("Continue [Y/n]: ").strip().lower()
+    confirm = input("继续 [Y/n]: ").strip().lower()
     if confirm in {"n", "no"}:
-        print("cancelled")
+        print("已取消")
         return 0
 
     new_brain = brain_text
@@ -178,7 +178,7 @@ def main() -> int:
     write_if_changed(GC_LAUNCH, launch_text, new_launch, stamp)
 
     print()
-    print("done")
+    print("完成")
     return 0
 
 
