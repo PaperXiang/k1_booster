@@ -978,16 +978,6 @@ NodeStatus StrikerDecide::tick() {
     brain->get_parameter("strategy.auto_visual_kick_enable_dist_max", autoVisualKickEnableDistMax);
     brain->get_parameter("strategy.auto_visual_kick_enable_angle", autoVisualKickEnableAngle);
 
-    bool enableRLVKChase = false;
-    double rlvkChaseEnableDistMin = chaseRangeThreshold;
-    double rlvkChaseEnableDistMax = 6.0;
-    double rlvkChaseEnableAngle = autoVisualKickEnableAngle;
-    brain->get_parameter("strategy.enable_rlvk_chase", enableRLVKChase);
-    brain->get_parameter("strategy.rlvk_chase_enable_dist_min", rlvkChaseEnableDistMin);
-    brain->get_parameter("strategy.rlvk_chase_enable_dist_max", rlvkChaseEnableDistMax);
-    brain->get_parameter("strategy.rlvk_chase_enable_angle", rlvkChaseEnableAngle);
-    const double chaseDecisionThreshold = chaseRangeThreshold * ((lastDecision == "chase" || lastDecision == "rlvk_chase") ? 0.9 : 1.0);
-
     double kickDir = brain->data->kickDir;
     double dir_rb_f = brain->data->robotBallAngleToField; // 机器人到球, field 坐标系中的方向
     auto ball = brain->data->ball;
@@ -1048,21 +1038,6 @@ NodeStatus StrikerDecide::tick() {
         newDecision = "find";
         color = 0xFFFFFFFF;
     } else if (
-        enableRLVKChase &&
-        brain->data->tmImLead &&
-        brain->data->tmMyCostRank == 0 &&
-        !brain->tree->getEntry<bool>("ball_out") &&
-        !brain->data->lose_ball &&
-        brain->data->ballDetected &&
-        brain->data->tmMyCost < 7.0 &&
-        ballRange < rlvkChaseEnableDistMax &&
-        ballRange > max(rlvkChaseEnableDistMin, chaseDecisionThreshold) &&
-        fabs(ballYaw) < rlvkChaseEnableAngle
-    ) {
-        newDecision = "rlvk_chase";
-        brain->data->tmImInVisualKick = true;
-        color = 0xFF66CCFF;
-    } else if (
         enableAutoVisualKick &&
         brain->data->tmImLead &&
         brain->data->tmMyCostRank == 0 &&
@@ -1084,7 +1059,7 @@ NodeStatus StrikerDecide::tick() {
         newDecision = "assist";
         color = 0x00FFFFFF;
     }
-    else if (ballRange > chaseDecisionThreshold)
+    else if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))
     {
         newDecision = "chase";
         color = 0x0000FFFF;
@@ -1116,7 +1091,7 @@ NodeStatus StrikerDecide::tick() {
         color = 0xFFFF00FF;
     }
 
-    if (newDecision != "auto_visual_kick" && newDecision != "rlvk_chase") {
+    if (newDecision != "auto_visual_kick") {
         brain->data->tmImInVisualKick = false;
     }
 
