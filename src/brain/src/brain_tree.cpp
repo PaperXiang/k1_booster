@@ -393,6 +393,8 @@ NodeStatus Chase::tick()
     getInput("vtheta_limit", vthetaLimit);
     getInput("dist", dist);
     getInput("safe_dist", safeDist);
+    bool arcWalk = false;
+    getInput("arc_walk", arcWalk);
 
     bool avoidObstacle = false;
     double oaSafeDist = 2.0;
@@ -453,7 +455,15 @@ NodeStatus Chase::tick()
         vy = 0;
         vtheta = targetDir;
         if (fabs(targetDir) < 0.1 && ballRange > 2.0) vtheta = 0.0;
-        vx *= sigmoid(fabs(vtheta), 1, 3);
+        if (arcWalk) {
+            // 走弧线: 用 sqrt(cos) 朝向因子, 中小偏角(<~45°)仍保留大部分前向速度, 边走边转,
+            // 只有目标接近正侧方(±90°)才退化为原地转; 修复"先转后走"。
+            double c = cos(vtheta);
+            double headingFactor = c > 0.0 ? sqrt(c) : 0.0;
+            vx *= headingFactor;
+        } else {
+            vx *= sigmoid(fabs(vtheta), 1, 3); // 原行为: 偏角 >~57° 前向迅速衰减, 偏大时近乎原地转
+        }
     }
 
     vx = cap(vx, vxLimit, -vxLimit);

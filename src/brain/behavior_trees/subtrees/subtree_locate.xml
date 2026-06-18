@@ -4,8 +4,8 @@
   <BehaviorTree ID="Locate">
      <Sequence name="root">
         <SelfLocate mode="trust_direction" />
-        <SelfLocateCircle msecs_interval="300" max_dist="5.0" max_drift="3.5" max_theta_drift="0.6" />
-        <SelfLocatePenalty msecs_interval="300" max_dist="5.0" max_drift="3.5" max_theta_drift="0.6" />
+        <!-- 已移除 SelfLocateCircle / SelfLocatePenalty: 这两个节点未在 brain_tree 实现/注册,
+             引用会导致 game.xml 加载时 BTCPP 抛异常、brain_node 启动即崩。若日后实现(声明+实现+REGISTER_BUILDER)再接回。 -->
         <SelfLocate1M msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocate2T msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocatePT msecs_interval="300" max_dist="5.0" max_drift="3.5" />

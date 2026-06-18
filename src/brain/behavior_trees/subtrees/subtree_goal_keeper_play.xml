@@ -37,7 +37,7 @@
 
                      <GoToGoalBlockingPosition _while="decision == 'retreat'" theta_tolerance="0.2" />
                      <!-- <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.4"  vtheta_limit="1.0"  dist="0.8"/> -->
-                     <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.3"  vtheta_limit="1.0"  dist="0.4" safe_dist="0.6" />
+                     <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.3"  vtheta_limit="1.0"  dist="0.4" safe_dist="0.6" arc_walk="true" />
                      <Adjust  _while="decision == 'adjust'" turn_threshold="0.2" range="0.3" vx_limit="0.3" vy_limit="0.2" vtheta_limit="1.0"  />
                      <Sequence  _while="decision == 'kick'">
                         <!-- <SetVelocity />
@@ -49,7 +49,7 @@
                   <ReactiveSequence _while="goalie_mode == 'guard'">
                      <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                      <GoToReadyPosition _while="!ball_location_known" vx_limit="0.7" />
-                     <Intercept _while="ball_will_breach" squat_dist="0.9" stand_block_dist="0.2" />
+                     <!-- 已移除守门员扑救 Intercept: guard 分支不可达(goalie_mode 恒为 attack)且 ball_will_breach 从未被写入, 属死代码。 -->
                      <GoToGoalBlockingPosition _while="ball_location_known" theta_tolerance="0.2" />
                   </ReactiveSequence>
 

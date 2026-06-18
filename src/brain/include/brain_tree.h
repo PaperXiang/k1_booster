@@ -272,6 +272,7 @@ public:
             InputPort<double>("vtheta_limit", 0.1, ""),
             InputPort<double>("dist", 1.0, ""),
             InputPort<double>("safe_dist", 1.0, ""),
+            InputPort<bool>("arc_walk", false, "true=走弧线(sqrt(cos)朝向因子,中小偏角仍前进,边走边转); false=原行为(sigmoid,偏角大时近乎原地转)"),
         };
     }
     NodeStatus tick() override;
