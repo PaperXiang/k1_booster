@@ -21,6 +21,7 @@
   <depend>game_controller_interface</depend>
   <depend>vision_interface</depend>
   <depend>k1_ball_predictor</depend>
+  <depend>k1_teammate_ball</depend>
   <depend>booster_msgs</depend>
   <depend>backward_ros</depend>
   <depend>tf2</depend>

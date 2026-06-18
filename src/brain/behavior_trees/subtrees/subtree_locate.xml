@@ -4,6 +4,8 @@
   <BehaviorTree ID="Locate">
      <Sequence name="root">
         <SelfLocate mode="trust_direction" />
+        <SelfLocateCircle msecs_interval="300" max_dist="5.0" max_drift="3.5" max_theta_drift="0.6" />
+        <SelfLocatePenalty msecs_interval="300" max_dist="5.0" max_drift="3.5" max_theta_drift="0.6" />
         <SelfLocate1M msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocate2T msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocatePT msecs_interval="300" max_dist="5.0" max_drift="3.5" />

@@ -1,0 +1,437 @@
+# Booster K1 比赛流程解析报告
+
+> 生成日期：2026-06-18
+> 适用代码：`k1_booster-1.6_remake`（K1 Booster v1.6 remake，RoboCup 人形足球）
+> 阅读对象：参赛 / 调试 / 策略开发者
+> 关联文档：`docs/strategy_analysis_2026_06_18.md`（单机 / 团队**策略层**深度解析）。本报告聚焦**比赛流程 / 状态机**，两者互补。
+
+---
+
+## 0. 一句话总览
+
+这是一套运行在 **ROS 2** 上的 RoboCup 人形机器人足球系统。比赛时，机器人通过**视觉**感知球场，通过 **GameController（裁判机）** 接收比赛状态，由 **brain（大脑）行为树** 做决策，最终下发运动指令踢球。整个比赛流程由两条主线驱动：
+
+1. **裁判机状态机**：`INITIAL → READY → SET → PLAY → END`（外加 FREE_KICK / TIMEOUT 等二级状态）。
+2. **手柄控制开关**：`control_state`（1=取消/手动，2=重定位，3=自动比赛），用于赛前 / 异常时人工介入。
+
+正式比赛使用 `behavior_trees/game.xml`，其首行注释即声明：**「正式比赛专用，严格执行规则，无法人工接管」**。
+
+---
+
+## 1. 系统架构与 ROS 2 节点
+
+代码位于 `src/` 下，按 ROS 2 包组织。比赛运行时由 `scripts/start.sh` 拉起的核心节点：
+
+| 节点 / 包 | 路径 | 职责 |
+|-----------|------|------|
+| **brain** | `src/brain` | 策略大脑：行为树 + 决策 + 感知融合 + 多机协同。比赛的"指挥中枢"。|
+| **vision** | `src/vision` | 视觉感知：TensorRT/ONNX 推理，检测球、球门柱、机器人/对手、场地标志点、场地线、分割。|
+| **game_controller** | `src/game_controller` | 裁判机接口：UDP 监听 3838 端口，解析比赛状态，发布到 `/robocup/game_controller`。|
+| **k1_ball_predictor** | `src/k1_ball_predictor` | 球路预测库/节点（v1.6 默认**关闭**，主链路用 brain 内嵌预测）。|
+| **k1_robot_webui_client** | `src/k1_robot_webui_client` | Web UI 客户端：把机器人状态 JSON 推给网页前端。|
+| **booster_ros2_interface** | `src/booster_ros2_interface` | 底层机器人消息接口（IMU、LowState、里程计、遥控器等）。|
+| **robocup_ros2_interface** | `src/robocup_ros2_interface` | 比赛消息接口（GameControlData、Detections、视觉相关 msg）。|
+
+### 1.1 数据流（比赛时）
+
+```
+                ┌──────────────┐   /robocup/game_controller    ┌──────────────────────┐
+  裁判机 ─UDP→  │ game_controller│ ────────────────────────────▶│                       │
+  (3838)        └──────────────┘                               │                       │
+                                                               │                       │
+  RealSense ──▶ ┌──────────────┐   /booster_vision/* (球/线/   │     brain (大脑)       │ ──▶ RobotClient
+  相机          │   vision      │ ─ 障碍/标志/分割) ──────────▶ │  · tick() 主循环       │     · setVelocity()
+                └──────────────┘                               │  · BehaviorTree(game) │     · 踢球 / 移动 / 转头
+                                                               │  · 感知记忆 / 定位     │     · 起身 / 守门动作
+  手柄 ───────▶ RemoteControllerState ───────────────────────▶│  · 多机 UDP 协同       │
+                                                               └──────────────────────┘
+  队友 ◀── UDP 单播（队友状态 / 控球成本）─────────────────────────────┘ ──▶ WebUI 状态 JSON
+```
+
+brain 订阅的主要话题（见 `src/brain/include/brain.h:319-329`）：视觉检测、场地线、分割结果、里程计、底层状态（IMU/头部关节）、图像/深度图、裁判机消息、手柄、跌倒恢复状态。
+
+---
+
+## 2. 启动流程（scripts/）
+
+| 脚本 | 用途 |
+|------|------|
+| `scripts/start.sh` | **正式比赛一键启动**：停旧进程 → `jetson_clocks` 提频 → 拉起 vision / brain(`game.xml`) / game_controller / webui_client。|
+| `scripts/start_brain.sh` | 单独启动 brain（`ros2 launch brain launch.py`）。|
+| `scripts/build.sh` / `build_brain.sh` / `build_debug.sh` | colcon 编译。|
+| `scripts/calibrate.sh` / `start_calibration.sh` | 相机/外参标定。|
+| `scripts/chase.sh` | 调试用：以 `tree:=chase` 启动（仅追球，关日志/关通信）。|
+| `scripts/assist.sh` | 调试用：以 `tree:=assist` 启动。|
+| `scripts/stop.sh` | 停止所有节点。|
+
+`brain` 的 launch（`src/brain/launch/launch.py`）支持运行时覆盖参数：
+
+- `tree:=game.xml`（默认，正式比赛树；可换 `chase`/`demo`）
+- `pos:=left|right`（覆盖 `game.player_start_pos`）
+- `role:=striker|goal_keeper`（覆盖 `game.player_role`）
+- `sim:=true`、`disable_log:=true`、`disable_com:=true`
+
+配置加载顺序：`config.yaml` → `config_local.yaml`（本地覆盖）→ launch 行内参数（最高优先级）。
+
+---
+
+## 3. 大脑主循环 `Brain::tick()`
+
+`src/brain/src/brain.cpp:596` —— 这是比赛流程的"心跳"，每个 tick 顺序执行：
+
+```cpp
+void Brain::tick() {
+    logDebugInfo(); logLags(); statusReport(); logStatusToConsole();
+    playSoundForFun(); updateLogFile();
+    updateMemory();          // ① 感知记忆：球/机器人/障碍/kickoff 记忆，更新 ball_location_known、ball_out、wait_for_opponent_kickoff
+    handleSpecialStates();   // ② 特殊状态：kickoff / freekick 计时，进球庆祝标志
+    handleCooperation();     // ③ 多机协同：算控球成本、是否 lead、角色切换
+    pubKickMsg();            // ④ 发布踢球消息（给运控）
+    tree->tick();            // ⑤ ★执行行为树（game.xml）—— 真正的决策与动作
+    publishWebuiStatus();    // ⑥ 推送状态 JSON 给 WebUI（限频 10Hz）
+}
+```
+
+> 关键点：**感知/状态/协同先更新，再 tick 行为树**。行为树读取的所有"事实"（球在哪、是不是 lead、比赛什么状态）都已在前面写入 Blackboard（黑板）。
+
+### 3.1 黑板（Blackboard）—— 行为树与 C++ 的桥梁
+
+行为树 XML 与 C++ 节点通过黑板键值交互。比赛流程相关的关键键：
+
+| 黑板键 | 含义 | 写入处 |
+|--------|------|--------|
+| `control_state` | 1=手动/取消，2=重定位，3=自动比赛 | 手柄回调 |
+| `go_manual` / `assist_chase` / `assist_kick` | 手柄人工介入标志 | 手柄回调 |
+| `player_role` | `striker` / `goal_keeper`（运行时可被协同/手柄改） | 配置 + 协同 + 手柄 |
+| `gc_game_state` | `INITIAL`/`READY`/`SET`/`PLAY`/`END` | 裁判机回调 |
+| `gc_game_sub_state_type` | `NONE`/`FREE_KICK`/`TIMEOUT` | 裁判机回调 |
+| `gc_game_sub_state` | `STOP`/`GET_READY`/`SET` | 裁判机回调 |
+| `gc_is_under_penalty` | 本机是否被判罚 | 裁判机回调 |
+| `gc_is_kickoff_side` / `gc_is_sub_state_kickoff_side` | 我方是否开球方 / 开任意球方 | 裁判机回调 |
+| `odom_calibrated` | 里程计/定位是否已校准 | 定位节点 |
+| `ball_location_known` / `tm_ball_pos_reliable` | 自己看到球 / 队友提供的球位可信 | 记忆 + 协同 |
+| `ball_out` | 球是否出界 | `updateBallOut()` |
+| `wait_for_opponent_kickoff` | 是否在等对方开球 | `updateKickoffMemory()` |
+| `decision` / `defend_decision` | 单机决策结果 | StrikerDecide/GoalieDecide |
+| `goalie_mode` | `attack` / `guard` | 守门员逻辑 |
+| `is_lead` | 团队中我是否控球主力 | 协同 |
+
+---
+
+## 4. 裁判机状态机（比赛流程主线）
+
+`game_controller` 节点监听 UDP 3838，把裁判机广播的 `HlRoboCupGameControlData`（版本 12，见 `RoboCupGameControlData.h:10`）逐字段转成 ROS 2 消息发到 `/robocup/game_controller`。brain 的 `gameControlCallback()`（`brain.cpp:1850`）再翻译成黑板状态。
+
+### 4.1 一级状态（`gc_game_state`）
+
+`brain.cpp:1856`：
+
+| 值 | 状态 | 含义 |
+|----|------|------|
+| 0 | `INITIAL` | 初始化，球员在**场外**准备 |
+| 1 | `READY` | 准备，球员**进场**并走到各自起始位置 |
+| 2 | `SET` | 停止动作，**站好等待**裁判鸣哨开球 |
+| 3 | `PLAY` | **正常比赛**（核心阶段）|
+| 4 | `END` | 比赛/半场结束 |
+
+### 4.2 二级状态类型（`gc_game_sub_state_type`）
+
+`brain.cpp:1868-1916`：裁判机的 `secondary_state` 被归并为三类：
+
+| secondary_state | 归并为 | `realGameSubState`（细分保留）|
+|-----------------|--------|------------------------------|
+| 0 | `NONE` | NONE（正常比赛）|
+| 3 | `TIMEOUT` | TIMEOUT（含两队/裁判暂停，此时一级状态必为 INITIAL）|
+| 4 | `FREE_KICK` | DIRECT_FREEKICK（`isDirectShoot=true`）|
+| 5 | `FREE_KICK` | INDIRECT_FREEKICK |
+| 6 | `FREE_KICK` | PENALTY_KICK（`isDirectShoot=true`）|
+| 7 | `FREE_KICK` | CORNER_KICK |
+| 8 | `FREE_KICK` | GOAL_KICK（`isDirectShoot=true`）|
+| 9 | `FREE_KICK` | THROW_IN |
+
+即：除暂停外，所有定位球都按 `FREE_KICK` 统一处理，再用 `realGameSubState`/`isDirectShoot` 细分能否直接射门。
+
+### 4.3 二级子状态（`gc_game_sub_state`）
+
+`brain.cpp:1917`，描述定位球的执行阶段：`STOP`（停下）→ `GET_READY`（移动到进攻/防守位）→ `SET`（站定待发）。
+
+### 4.4 判罚（penalty）与开球方
+
+- `gc_is_under_penalty`：本机 `penalty != PENALTY_NONE`（`brain.cpp:1971`）。**被罚后会清除 `odom_calibrated`**（需要重新进场定位，`brain.cpp:1973`）。红牌按替补（`PENALTY_SUBSTITUTE`）处理。
+- `gc_is_kickoff_side` / `gc_is_sub_state_kickoff_side`：比对 `kick_off_team` / `secondary_state_info[0]` 与本队 `teamId`，决定我方是否是（任意球的）开球方。
+- 同时统计双方在场人数 `liveCount` / `oppoLiveCount`（供协同/守门决策用）。
+
+---
+
+## 5. 控制模式与手柄介入（`control_state`）
+
+`Brain::joystickCallback()`（`brain.cpp:1737`）。**LT 组合键**切换三大状态：
+
+| 按键 | `control_state` | 行为 |
+|------|-----------------|------|
+| **LT + X** | 1（CANCEL）| 取消：立即停车、头归位，进入手动调试态 |
+| **LT + A** | 2（RECALIBRATE）| 重定位：清 `odom_calibrated`，重新扫场定位（pickup 后用）|
+| **LT + B** | 3（ACTION）| 自动比赛（默认态，行为树启动即 `RunOnce` 设为 3）|
+| **LT + Y** | — | 切换本机角色 striker↔goal_keeper |
+| LT + 方向键 | — | 在线微调 `vxFactor` / `yawOffset` |
+
+**单键（无 LT/RT）**：
+
+| 按键 | 标志 | 行为 |
+|------|------|------|
+| **LB** | `assist_chase=true` | 辅助追球（手动触发追球）|
+| **RB** | `assist_kick=true` | 辅助踢球 |
+| 方向键 | — | 触发庆祝 / 懊恼等音效 |
+
+**摇杆**：任一摇杆推动幅度 > 0.1 即 `go_manual=true`（`brain.cpp:1747-1758`），人工接管移动；松开恢复自动。
+
+> 在 `game.xml` 里，`control_state==1 || assist_kick || go_manual || assist_chase` 会进入**手动分支**；`control_state==3 && !go_manual` 才进入**自动比赛分支**。这就是赛中"人工随时可压制自动策略"的机制（注：`game.xml` 顶部强调正式比赛规则下不可人工接管——手动分支主要用于赛前 / 友谊赛 / 调试）。
+
+---
+
+## 6. `game.xml` 行为树主流程
+
+`src/brain/behavior_trees/game.xml`。主树是一个大 `Sequence`，按 `control_state` 分三层 `ReactiveSequence`（BTCPP v4，`_while` 为持续条件）：
+
+```
+MainTree (Sequence)
+├─ RunOnce: control_state = 3                       // 默认自动
+│
+├─ [while control_state==1 || assist_kick || go_manual || assist_chase]  ── 手动层
+│    ├─ Speak("manual")
+│    ├─ SimpleChase            [while assist_chase]  // 朝球走
+│    └─ Kick                   [while assist_kick]   // 踢球
+│
+├─ [while control_state==2]                          ── 重定位层（pickup 后重新进场）
+│    ├─ RobocupWalk (RunOnce)
+│    ├─ Speak("locate")
+│    ├─ CamScanField           [while !odom_calibrated]   // 扫场找特征
+│    ├─ CamFindAndTrackBall    [while odom_calibrated]
+│    └─ SelfLocateEnterField                          // 在入场点完成定位
+│
+└─ [while control_state==3 && !go_manual]            ── ★自动比赛层
+     ├─ Speak("auto")
+     ├─ AutoGetUpAndLocate     // = CheckAndStandUp，跌倒自动起身
+     │
+     ├─ [while gc_is_under_penalty]  ── 判罚/替补：停车、扫场、找球、入场定位
+     │
+     └─ [while !gc_is_under_penalty] ── 正常比赛
+          ├─ [while sub_state=='TIMEOUT']  ── 暂停：停车 + 校准
+          │
+          ├─ [while sub_state=='NONE']     ── 常规
+          │    ├─ [INITIAL] 场外站好 → 扫场/找球 → SelfLocateEnterField
+          │    ├─ [READY]   低头 → GoToReadyPosition(走到场内起始位) → Locate
+          │    ├─ [SET]     站定 → 跟球 + SetVelocity(停) + Locate
+          │    ├─ [PLAY]    StrikerPlay   [while role=='striker']
+          │    │            GoalKeeperPlay[while role=='goal_keeper']
+          │    └─ [END]     停车
+          │
+          └─ [while sub_state=='FREE_KICK' && PLAY]   ── 任意球
+               ├─ [sub_state=='STOP']      跟球 + 定位 + 停车
+               ├─ [sub_state=='GET_READY'] 定位 → StrikerFreekick / GoalKeeperFreekick（走到攻/防点球位）
+               └─ [sub_state=='SET']       跟球 + 定位 + 停车（待发）
+```
+
+> `ReactiveSequence` 的语义：每个 tick 从头重新评估 `_while` 条件，条件不满足立即跳到匹配的分支——因此**裁判机状态一变，机器人行为立刻切换**，这正是比赛流程"实时响应"的关键。
+
+---
+
+## 7. 各比赛阶段详解
+
+### 7.1 INITIAL（场外准备）
+机器人在场外入场点站立，用 `CamScanField` 扫场寻找标志/线特征，看到球后 `CamFindAndTrackBall` 跟踪，`SelfLocateEnterField` 完成入场定位。`odom_calibrated` 在此被建立。
+
+### 7.2 READY（进场就位）
+`MoveHead(pitch=0.35)` 低头，`GoToReadyPosition(vx_limit=0.7)` 走到场内本方起始位置，期间持续 `Locate` 自定位。起始位由 `player_start_pos`（left/right）+ 角色决定。
+
+### 7.3 SET（站定待发）
+`SetVelocity`（停车）站好不动，`CamFindAndTrackBall` 持续锁球，`Locate` 持续校准位置。此阶段若我方是开球方，`handleSpecialStates()` 会置 `isKickingOff=true`（计时 10s）。
+
+### 7.4 PLAY（正式比赛）—— 核心
+按角色进入 `StrikerPlay` 或 `GoalKeeperPlay` 子树（见第 8 节）。
+
+### 7.5 END（结束）
+`SetVelocity` 停车。
+
+### 7.6 TIMEOUT（暂停，一级状态恒为 INITIAL）
+停车并利用 `CamFindAndTrackBall` 维持定位，等待恢复。
+
+### 7.7 FREE_KICK（任意球，仅在 PLAY 下）
+按子状态 STOP→GET_READY→SET 推进：
+- **STOP**：跟球、定位、停车。
+- **GET_READY**：`StrikerFreekick`/`GoalKeeperFreekick` 走到攻/防点球位（`GoToFreekickPosition`，攻方贴近球 0.7m，守方退到 1.9m）。
+- **SET**：站定待发。
+开球方由 `gc_is_sub_state_kickoff_side` 决定攻/守站位。
+
+---
+
+## 8. PLAY 阶段策略（单机决策闭环）
+
+> 决策内部细节（阈值、协同成本）详见 `docs/strategy_analysis_2026_06_18.md`。此处给出**流程视角**的决策状态机。
+
+### 8.1 前锋 StrikerPlay（`subtree_striker_play.xml`）
+
+每 tick 流程：`SelfLocate` → `Locate` → 判 `wait_for_opponent_kickoff`（等对方开球则只跟球停步）→ 判 `ball_out`（出界则 `GoBackInField` 回场）→ 否则进入主循环：
+
+```
+CamFindAndTrackBall → CalcKickDir → StrikerDecide(decision) → 按 decision 执行动作
+```
+
+**`StrikerDecide::tick()`（`brain_tree.cpp:947`）决策优先级（从上到下）：**
+
+| 优先级 | decision | 触发条件（要点）| 动作节点 |
+|--------|----------|----------------|---------|
+| 1 | `find` | 自己和队友都不知道球在哪（`!ball_location_known && !tm_ball_pos_reliable`，`:1036`）| FindBall 子树（扫场+原地转） |
+| 2 | `auto_visual_kick` | 开启视觉踢且 `tmImLead && tmMyCostRank==0`、球未出界、未丢球、成本<7、距离/角度/场内范围满足（`:1040`）| RLVisionKick（RL 视觉踢球）|
+| 3 | `assist` | 我不是控球主力 `!tmImLead`（`:1058`）| Assist（拉开接应）|
+| 4 | `chase` | 球距 > `chase_threshold`（`:1062`，带迟滞 0.9）| Chase |
+| 5 | `kick`/`cross`/`safe_shoot` | 角度对位好或已穿过踢球方向、球在 `KICK_RANGE` 内、yaw 在范围内（`:1067`）| Kick（按 threat 选安全射/普通踢）|
+| 6 | `adjust` | 以上都不满足（默认，`:1090`）| Adjust（绕球调整对位角度）|
+
+**`CalcKickDir::tick()`（`brain_tree.cpp:879`）决定踢球方向类型：**
+- `cross`（传中）：射门角太窄且球已过中圈，或开球时在中场两侧 → 往禁区里传。
+- `block`（解围）：处于防守时，把球往远离己方门方向踢。
+- `shoot`（射门，默认）：朝对方球门中心方向；球已过底线则直接向前。
+
+### 8.2 守门员 GoalKeeperPlay（`subtree_goal_keeper_play.xml`）
+
+按 `goalie_mode` 分两态：
+- **`guard`（守门）**：球位未知时 `GoToReadyPosition`；已知则 `GoToGoalBlockingPosition` 站到门前封堵线上。
+- **`attack`（出击）**：`GoalieDecide` 后执行 find/retreat/chase/adjust/kick。
+
+**`GoalieDecide::tick()`（`brain_tree.cpp:1115`）优先级：**
+
+| 优先级 | decision | 条件 | 动作 |
+|--------|----------|------|------|
+| 1 | `find` | 不知道球位 | GoToGoalBlockingPosition / FindBall |
+| 2 | `retreat` | 球在中线对方半场一侧（`ball.x > 0`，带迟滞，`:1152`）| GoToGoalBlockingPosition（退守）|
+| 3 | `chase` | 球距 > `chase_threshold`（`:1167`）| Chase |
+| 4 | `kick` | 朝向角度好 `dir∈(-π/2,π/2)`（`:1172`）| Kick |
+| 5 | `adjust` | 默认 | Adjust |
+
+`Intercept` 节点实现下蹲/移动扑救（`use_squat_block` / `use_move_block`），扑救后回到 `attack` 态（`brain_tree.cpp:1557/1598`）。
+
+### 8.3 关键动作节点一览（`brain_tree.h`）
+
+| 节点 | 作用 |
+|------|------|
+| `CamFindAndTrackBall` | 知道球位则 `CamTrackBall` 头部跟踪；否则 `CamFindBall` 扫描寻找 |
+| `Chase` | 朝球走，带安全距离避让 |
+| `Adjust` | 在球周围侧移/转身，把踢球方向对准目标 |
+| `Kick` | 趟踢：稳定后按 `speed_limit` 把球踢向 `kickDir` |
+| `RLVisionKick` | 强化学习视觉踢球（`kV1`/`kV2`，见 `config.yaml` RLVisionKick）|
+| `GoToReadyPosition` / `GoToGoalBlockingPosition` / `GoToFreekickPosition` | 走到就位点 / 封堵点 / 任意球点 |
+| `Assist` | 非控球时跑接应位 |
+| `FindBall` 子树 | 找球：回场 + 快扫 + 原地转 180° + 再扫 |
+| `CheckAndStandUp` | 跌倒检测并自动起身（`AutoGetUpAndLocate`）|
+| `SetVelocity` | 设速度（缺省即停车）|
+
+---
+
+## 9. 特殊状态与记忆
+
+### 9.1 开球记忆 `updateKickoffMemory()`（`brain.cpp:1264`）
+当 SET/READY 且我方**非**开球方（或任意球非开球方）时，置 `wait_for_opponent_kickoff=true`，记录当前球位与时间。之后只要**球移动超过阈值**（`max(0.15×range, 0.3m)`）或**超时 10s**，就解除等待（`:1289-1297`）。规则要求非开球方在对方开球前不得碰球，这段逻辑确保合规且不会无限干等。
+
+### 9.2 kickoff / freekick 计时 `handleSpecialStates()`（`brain.cpp:890`）
+- `SET && 我方开球方` → `isKickingOff=true`，10s 后自动失效。
+- `PLAY && FREE_KICK && 我方开任意球方` → `isFreekickKickingOff=true`，10s 后失效并清 `isDirectShoot`。
+- 进球瞬间（`score` 增加）置 `we_just_scored`，到 SET 清除（用于庆祝动作）。
+
+### 9.3 感知记忆 `updateMemory()`
+球记忆（看不见球时用记忆位 + 里程计推算相对位）、机器人记忆、障碍记忆，并更新 `ball_out`。这让机器人短暂看不见球时仍能合理动作。
+
+---
+
+## 10. 自定位（Locate 子树）
+
+`subtree_locate.xml` 串联多种**基于场地特征**的位置校正器（每个限频 300ms、限制单次漂移 ≤3.5m）：
+
+| 节点 | 依据特征 |
+|------|---------|
+| `SelfLocate(trust_direction)` | 信任当前朝向的粗定位 |
+| `SelfLocate1M` | 单个标志点（marking）|
+| `SelfLocate2T` | 两个 T 字交叉 |
+| `SelfLocatePT` | 罚球点 + T 交叉 |
+| `SelfLocateLT` | L 交叉 + T 交叉 |
+| `SelfLocate2X` | 两个 X 交叉 |
+| `SelfLocateBorder` | 场地边界线 |
+
+多特征互补校正，配合 `locator`（`min_marker_count=4`、`max_residual=0.4`）保证比赛中位姿可靠。`SelfLocateEnterField` 用于入场点专门定位。
+
+---
+
+## 11. 多机协同（流程视角，详见策略报告）
+
+`handleCooperation()`（`brain.cpp:925`）每 tick：
+1. 判断自己是否"在场可用"（未判罚 + 已定位，`:942`）。
+2. `updateCostToKick()` 算自己的**控球成本**。
+3. 通过 UDP（`enable_com=True`）收发队友状态，比较成本：成本最低者 `is_lead`/`tmImLead=true` 成为**控球主力**，其余去 `assist`。
+4. 支持**动态角色切换**（`cooperation.enable_role_switch=true`）：例如前锋全倒地时守门员可顶上。
+5. 队友可共享球位，使本机 `tm_ball_pos_reliable=true`，即便自己没看到球也能行动。
+
+---
+
+## 12. 关键配置（`src/brain/config/config.yaml`）
+
+赛前**必须确认**的参数：
+
+| 参数 | 说明 |
+|------|------|
+| `game.team_id` | **必须与裁判机一致**（当前 66）|
+| `game.player_id` | 球衣号 1–5（当前 3）|
+| `game.player_role` | `striker` / `goal_keeper` |
+| `game.player_start_pos` | `left` / `right` |
+| `game.field_type` | `adult_size` / `kid_size` / `robo_league` |
+| `game.treat_person_as_robot` | **正式比赛必须 `false`**（仅调试用）|
+| `game_control_ip` | 裁判机 IP（当前 `192.168.74.2`）|
+| `enable_com` | 多机通信开关（建议开）|
+| `strategy.*` | 踢球范围、追球阈值、射门门限、避障等策略门限 |
+| `RLVisionKick.visual_kick_version` | `kV1` / `kV2` 视觉踢球版本 |
+| `vision.*` | 相机话题、分辨率、视场角（当前为 RealSense 1280×720）|
+
+---
+
+## 13. 全流程时序小结
+
+```
+开机 → scripts/start.sh 拉起 vision / brain / game_controller / webui
+   │
+   ├─ brain 行为树 RunOnce 设 control_state=3（自动）
+   │
+   ▼  （每 tick：updateMemory → handleSpecialStates → handleCooperation → tree.tick）
+裁判机广播状态  ──────────────────────────────────────────────┐
+   │                                                          │
+INITIAL ─▶ 场外站好 + 扫场 + 入场定位                          │ 全程：
+READY   ─▶ 进场走到起始位 + 持续自定位                         │  · 视觉持续检测球/线/对手
+SET     ─▶ 站定锁球 + 校准（我方开球→isKickingOff）            │  · 自定位持续校正位姿
+PLAY    ─▶ 前锋: find→(visual_kick/assist)→chase→kick/adjust   │  · 多机协同分配控球/角色
+        ─▶ 守门: guard(封堵) / attack(decide→扑救/解围)         │  · 跌倒自动起身
+        ─▶ FREE_KICK: STOP→GET_READY(走点球位)→SET             │  · 手柄 LT+X/A/B 可随时介入
+END     ─▶ 停车                                               │  · WebUI 实时显示状态
+   │                                                          │
+TIMEOUT ─▶ 停车 + 维持定位 ◀──────────────────────────────────┘
+判罚    ─▶ 停步，解罚后重新进场定位
+```
+
+---
+
+## 14. 阅读 / 调试入口速查
+
+| 想了解 | 看这里 |
+|--------|--------|
+| 比赛主流程骨架 | `src/brain/behavior_trees/game.xml` |
+| 裁判机状态翻译 | `src/brain/src/brain.cpp` `gameControlCallback()` (:1850) |
+| 手柄控制 | `brain.cpp` `joystickCallback()` (:1737) |
+| 主循环 | `brain.cpp` `Brain::tick()` (:596) |
+| 前锋决策 | `src/brain/src/brain_tree.cpp` `StrikerDecide::tick()` (:947) |
+| 守门决策 | `brain_tree.cpp` `GoalieDecide::tick()` (:1115) |
+| 踢球方向 | `brain_tree.cpp` `CalcKickDir::tick()` (:879) |
+| 开球等待 | `brain.cpp` `updateKickoffMemory()` (:1264) |
+| 多机协同 | `brain.cpp` `handleCooperation()` (:925) |
+| 自定位 | `src/brain/behavior_trees/subtrees/subtree_locate.xml` + `src/brain/src/locator.cpp` |
+| 单机/团队策略深解 | `docs/strategy_analysis_2026_06_18.md` |
+
+---
+
+*本报告基于对 `src/brain`、`src/game_controller`、`src/vision`、行为树 XML 与 `config.yaml` 的静态代码分析整理，行号对应当前 remake 版本。*

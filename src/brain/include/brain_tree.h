@@ -175,16 +175,57 @@ private:
     Brain *brain;
 };
 
+/**
+ * @brief 椭圆(李萨如)平滑扫球 —— 从 1.5 迁移并修复"头部周期与转身重合"的问题。
+ *
+ * 与旧版 1:1 椭圆(yaw=sin, pitch=cos, 头部 pitch 与 yaw 锁死)不同:
+ *   - pitch 为"快轴": 每 pitch_cycle_msec 完整上下扫一遍, 覆盖远/近, 与身体转身解耦;
+ *   - yaw 为"慢轴": 周期 = pitch_cycle_msec * frequency_ratio, 与快轴非 1:1, 填满 yaw×pitch;
+ *   - 检测到球立即切换为视线跟踪, 把球收到画面中心。
+ * 配合 RobotFindBall 匀速转身, 只要 pitch_cycle_msec < 相机水平视场角/转身角速度,
+ * 即可保证身体转一圈中每个方位的远近都被扫到。
+ *
+ * 注意: 本节点只用于"主动找球"(FindBall), 不替代扫场定位用的 CamScanField。
+ */
+class CamLissajousScan : public StatefulActionNode
+{
+public:
+    CamLissajousScan(const string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
+    static PortsList providedPorts() {
+        return {
+            InputPort<double>("pitch_center", 0.55, "竖直扫描中心 pitch(rad), 向下为正"),
+            InputPort<double>("pitch_amplitude", 0.35, "竖直扫描幅度(rad), 实际 pitch ∈ [center-amp, center+amp]"),
+            InputPort<double>("yaw_amplitude", 0.9, "水平扫描幅度(rad)"),
+            InputPort<double>("pitch_cycle_msec", 1000.0, "快轴(pitch)完整上下扫一遍的周期(ms), 越小竖直覆盖越密、可越快转身"),
+            InputPort<double>("frequency_ratio", 3.0, "快轴(pitch):慢轴(yaw) 频率比, 须 >1 以填满 yaw×pitch、解除与转身周期的锁定"),
+        };
+    }
+    NodeStatus onStart() override;
+    NodeStatus onRunning() override;
+    void onHalted() override {};
+private:
+    rclcpp::Time _startTime;
+    double _pitchPhase = 0.0; // onStart 时按当前头部姿态对齐相位, 避免起始跳变
+    double _yawPhase = 0.0;
+    Brain *brain;
+};
+
 class RobotFindBall : public StatefulActionNode
 {
 public:
     RobotFindBall(const string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
-    static PortsList providedPorts() { return { InputPort<double>("vyaw_limit", 1.0, "") }; }
+    static PortsList providedPorts() {
+        return {
+            InputPort<double>("vyaw_limit", 1.0, "找球时身体旋转速度上限(rad/s)"),
+            InputPort<double>("transition_vx", 0.25, "看到球但位置尚未稳定时的前进衔接速度(m/s)"),
+        };
+    }
     NodeStatus onStart() override;
     NodeStatus onRunning() override;
     void onHalted() override;
 private:
     double _turnDir;
+    int _stableDetectedCount = 0;
     Brain *brain;
 };
 
@@ -747,7 +788,8 @@ public:
     static PortsList providedPorts() {
         return {
             InputPort<double>("stop_dist", 1.0, ""), InputPort<double>("stop_angle", 0.1, ""),
-            InputPort<double>("vy_limit", 0.2, ""), InputPort<double>("vx_limit", 0.6, ""),
+            InputPort<double>("vy_limit", 0.4, ""), InputPort<double>("vx_limit", 1.2, ""),
+            InputPort<double>("vtheta_limit", 2.4, ""),
         };
     }
     NodeStatus tick() override;

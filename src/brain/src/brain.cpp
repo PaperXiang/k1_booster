@@ -340,6 +340,15 @@ Brain::Brain() : rclcpp::Node("brain_node")
 
     declare_parameter<bool>("enable_com", false);
 
+    // 队友间高置信度球位置共享 (k1_teammate_ball)
+    declare_parameter<bool>("teammate_ball_share.enable", false);
+    declare_parameter<double>("teammate_ball_share.min_confidence_to_share", 50.0);
+    declare_parameter<double>("teammate_ball_share.min_confidence_to_trust", 50.0);
+    declare_parameter<double>("teammate_ball_share.trust_timeout", 1.0);
+    declare_parameter<double>("teammate_ball_share.self_dist_threshold", 2.0);
+    declare_parameter<double>("teammate_ball_share.teammate_timeout", 1.0);
+    declare_parameter<bool>("teammate_ball_share.require_location_known", true);
+
     declare_parameter<bool>("rerunLog.enable_tcp", false);
     declare_parameter<string>("rerunLog.server_ip", "");
     declare_parameter<bool>("rerunLog.enable_file", false);
@@ -412,6 +421,20 @@ void Brain::init()
     tree = std::make_shared<BrainTree>(this);
     client = std::make_shared<RobotClient>(this);
     communication = std::make_shared<BrainCommunication>(this);
+
+    // 队友间高置信度球位置共享 (独立 package k1_teammate_ball), 由 config 决定是否启用
+    teammateBall = std::make_shared<k1_teammate_ball::TeammateBallSharing>();
+    {
+        k1_teammate_ball::Config tbCfg;
+        tbCfg.enable = config->tmBallShareEnable;
+        tbCfg.min_confidence_to_share = config->tmBallShareMinConfidenceToShare;
+        tbCfg.min_confidence_to_trust = config->tmBallShareMinConfidenceToTrust;
+        tbCfg.trust_timeout_sec = config->tmBallShareTrustTimeout;
+        tbCfg.self_dist_threshold = config->tmBallShareSelfDistThreshold;
+        tbCfg.teammate_timeout_sec = config->tmBallShareTeammateTimeout;
+        tbCfg.require_location_known = config->tmBallShareRequireLocationKnown;
+        teammateBall->setConfig(tbCfg);
+    }
 
     
     locator->init(config->fieldDimensions, config->pfMinMarkerCnt, config->pfMaxResidual);
@@ -523,6 +546,14 @@ void Brain::loadConfig()
     get_parameter("locator.max_residual", config->pfMaxResidual);
 
     get_parameter("enable_com", config->enableCom);
+
+    get_parameter("teammate_ball_share.enable", config->tmBallShareEnable);
+    get_parameter("teammate_ball_share.min_confidence_to_share", config->tmBallShareMinConfidenceToShare);
+    get_parameter("teammate_ball_share.min_confidence_to_trust", config->tmBallShareMinConfidenceToTrust);
+    get_parameter("teammate_ball_share.trust_timeout", config->tmBallShareTrustTimeout);
+    get_parameter("teammate_ball_share.self_dist_threshold", config->tmBallShareSelfDistThreshold);
+    get_parameter("teammate_ball_share.teammate_timeout", config->tmBallShareTeammateTimeout);
+    get_parameter("teammate_ball_share.require_location_known", config->tmBallShareRequireLocationKnown);
 
     // get_parameter("rerunLog.enable", config->rerunLogEnable);
     get_parameter("rerunLog.enable_tcp", config->rerunLogEnableTCP);
@@ -997,44 +1028,84 @@ void Brain::handleCooperation() {
     log_(format("Self: cost: %.1f, isLead: %d", data->tmMyCost, data->tmImLead));
 
 
-    static rclcpp::Time lastTmBallPosTime = get_clock()->now();
-    const double TM_BALL_TIMEOUT = 1000.; 
-    const double RANGE_THRESHOLD = config->tmBallDistThreshold; 
-    int trustedTMIdx = -1;
-    double minRange = 1e6;
-    log_(format("Find ball info among %d alive TMs", aliveTmIdxs.size()));
-    for (int i = 0; i < aliveTmIdxs.size(); i++) {
-        auto status = data->tmStatus[aliveTmIdxs[i]];
-        log_(format("TM %d, ballDetected: %d, ballRange: %.1f", i + 1, status.ballDetected, status.ballRange));
-        if (status.ballDetected && status.ballRange < minRange) {
-            log_(format("tm ball range(%.1f) < minRange(%.1f)", status.ballRange, minRange));
-            double dist = norm(status.ballPosToField.x - data->robotPoseToField.x, status.ballPosToField.y - data->robotPoseToField.y);
-            if (dist > RANGE_THRESHOLD) {
-                log_(format("tm ball dist to me(%.1f) > threshold(%.1f), TM %d can be trusted", dist, RANGE_THRESHOLD, i+ 1));
-                minRange = status.ballRange;
-                trustedTMIdx = aliveTmIdxs[i];
-            }  else {
-                log_(format("tm ball dist to me(%.1f) < threshold(%.1f), TM %d can NOT be trusted", dist, RANGE_THRESHOLD, i+ 1));
-            }
+    if (config->tmBallShareEnable && teammateBall) {
+        // ===== 新: 队友间高置信度球位置共享/融合 (逻辑封装在独立 package k1_teammate_ball) =====
+        // 传输仍复用上面已有的 UDP 通讯收到的 tmStatus; 这里只做"高置信度门控 + 选择/融合 + 超时保持"。
+        for (size_t i = 0; i < aliveTmIdxs.size(); i++) {
+            int idx = aliveTmIdxs[i];
+            const auto &status = data->tmStatus[idx];
+            k1_teammate_ball::BallReport r;
+            r.player_id = idx + 1;
+            r.x = status.ballPosToField.x;
+            r.y = status.ballPosToField.y;
+            r.confidence = status.ballConfidence;
+            r.range = status.ballRange;
+            r.detected = status.ballDetected;
+            r.location_known = status.ballLocationKnown;
+            r.robot_x = status.robotPoseToField.x;
+            r.robot_y = status.robotPoseToField.y;
+            r.stamp_sec = status.timeLastCom.seconds();
+            teammateBall->ingest(r);
         }
-    }
-    if (trustedTMIdx >= 0) {   
-        log_(format("Reliable tm ball found. PlayerID = %d", trustedTMIdx + 1));
-        data->tmBall.posToField = data->tmStatus[trustedTMIdx].ballPosToField;
-        updateRelativePos(data->tmBall);
-
-        tree->setEntry<bool>("tm_ball_pos_reliable", true);
-        lastTmBallPosTime = get_clock()->now();
-        if (!tree->getEntry<bool>("ball_location_known")) { 
-            log_("update ball.posToField");
-            data->ball.posToField = data->tmBall.posToField;
-            updateRelativePos(data->ball);
+        auto fused = teammateBall->fuse(
+            data->robotPoseToField.x, data->robotPoseToField.y,
+            tree->getEntry<bool>("ball_location_known"),
+            get_clock()->now().seconds());
+        if (fused.reliable) {
+            log_(format("[tmBallShare] reliable tm ball: PlayerID=%d conf=%.0f fresh=%d", fused.source_player_id, fused.confidence, fused.is_fresh));
+            data->tmBall.posToField.x = fused.x;
+            data->tmBall.posToField.y = fused.y;
+            updateRelativePos(data->tmBall);
+            tree->setEntry<bool>("tm_ball_pos_reliable", true);
+            if (!tree->getEntry<bool>("ball_location_known")) {
+                data->ball.posToField = data->tmBall.posToField;
+                updateRelativePos(data->ball);
+            }
+        } else {
+            log_("[tmBallShare] no reliable high-confidence tm ball");
+            tree->setEntry<bool>("tm_ball_pos_reliable", false);
         }
     } else {
-        log_("TM reported NO BALL or can not be trusted");
-        if (msecsSince(lastTmBallPosTime) > TM_BALL_TIMEOUT) {
-            log_("TM ball timeout reached");
-            tree->setEntry<bool>("tm_ball_pos_reliable", false);
+        // ===== 原有逻辑 (tmBallShareEnable=false 时保持不变): 仅按 ballDetected + 距离选最近队友球 =====
+        static rclcpp::Time lastTmBallPosTime = get_clock()->now();
+        const double TM_BALL_TIMEOUT = 1000.;
+        const double RANGE_THRESHOLD = config->tmBallDistThreshold;
+        int trustedTMIdx = -1;
+        double minRange = 1e6;
+        log_(format("Find ball info among %d alive TMs", aliveTmIdxs.size()));
+        for (int i = 0; i < aliveTmIdxs.size(); i++) {
+            auto status = data->tmStatus[aliveTmIdxs[i]];
+            log_(format("TM %d, ballDetected: %d, ballRange: %.1f", i + 1, status.ballDetected, status.ballRange));
+            if (status.ballDetected && status.ballRange < minRange) {
+                log_(format("tm ball range(%.1f) < minRange(%.1f)", status.ballRange, minRange));
+                double dist = norm(status.ballPosToField.x - data->robotPoseToField.x, status.ballPosToField.y - data->robotPoseToField.y);
+                if (dist > RANGE_THRESHOLD) {
+                    log_(format("tm ball dist to me(%.1f) > threshold(%.1f), TM %d can be trusted", dist, RANGE_THRESHOLD, i+ 1));
+                    minRange = status.ballRange;
+                    trustedTMIdx = aliveTmIdxs[i];
+                }  else {
+                    log_(format("tm ball dist to me(%.1f) < threshold(%.1f), TM %d can NOT be trusted", dist, RANGE_THRESHOLD, i+ 1));
+                }
+            }
+        }
+        if (trustedTMIdx >= 0) {
+            log_(format("Reliable tm ball found. PlayerID = %d", trustedTMIdx + 1));
+            data->tmBall.posToField = data->tmStatus[trustedTMIdx].ballPosToField;
+            updateRelativePos(data->tmBall);
+
+            tree->setEntry<bool>("tm_ball_pos_reliable", true);
+            lastTmBallPosTime = get_clock()->now();
+            if (!tree->getEntry<bool>("ball_location_known")) {
+                log_("update ball.posToField");
+                data->ball.posToField = data->tmBall.posToField;
+                updateRelativePos(data->ball);
+            }
+        } else {
+            log_("TM reported NO BALL or can not be trusted");
+            if (msecsSince(lastTmBallPosTime) > TM_BALL_TIMEOUT) {
+                log_("TM ball timeout reached");
+                tree->setEntry<bool>("tm_ball_pos_reliable", false);
+            }
         }
     }
 

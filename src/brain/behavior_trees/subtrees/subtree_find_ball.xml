@@ -1,21 +1,26 @@
-<!-- 摄像头跟踪球 -->
+<!-- 主动找球(decision=='find'): 身体匀速转一圈 + 头部"竖快横慢"椭圆(李萨如)扫描, 保证转一圈一定扫到球 -->
+<!-- 注意: 这是主动找球, 不替代/不影响扫场定位用的 CamScanField -->
 
 <root BTCPP_format="4" >
-  <BehaviorTree ID="FindBall">
-     <Sequence name="root">
-        <ReactiveSequence>
+   <BehaviorTree ID="FindBall">
+      <ReactiveFallback name="root">
+         <!-- 一旦完成定位立即退出找球 -->
+         <ScriptCondition code="ball_location_known" />
+         <ReactiveSequence>
             <GoBackInField />
-            <CamFastScan />
-        </ReactiveSequence>
-        <TurnOnSpot rad="3.14"  towards_ball="true"/>
-        <ReactiveSequence>
-            <GoBackInField />
-            <CamFastScan />
-        </ReactiveSequence>
-        <ReactiveSequence>
-          <GoToReadyPosition  vx_limit="0.7" />
-          <Sleep msec="5000" />
-        </ReactiveSequence>
-      </Sequence>
-  </BehaviorTree>
+            <!-- 头(竖向快扫覆盖远近) 与 身体(匀速转身覆盖各方位) 并行; RobotFindBall 找到球(SUCCESS)即结束本轮 -->
+            <Parallel success_count="1" failure_count="2">
+               <!-- pitch 1s 完整上下扫一遍, yaw 慢 3 倍(非 1:1); 与转身解耦, 修复"半圈只看下半椭圆、半圈只看上半"的问题 -->
+               <CamLissajousScan pitch_center="0.55" pitch_amplitude="0.35" yaw_amplitude="0.9" pitch_cycle_msec="1000" frequency_ratio="3.0" />
+               <!-- 转身 1.0rad/s: 每个方位在 ~90° 视场内停留约 1.57s > pitch 周期 1.0s, 停留期间必有一次完整竖扫 -> 不漏球. 想更快可同步缩短 pitch_cycle_msec -->
+               <RobotFindBall vyaw_limit="1.0" transition_vx="0.25" />
+            </Parallel>
+         </ReactiveSequence>
+         <!-- 转完仍没找到: 回到 ready 位等待片刻再重试 -->
+         <ReactiveSequence>
+            <GoToReadyPosition vx_limit="0.7" />
+            <Sleep msec="2000" />
+         </ReactiveSequence>
+      </ReactiveFallback>
+   </BehaviorTree>
 </root>

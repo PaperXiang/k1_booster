@@ -55,9 +55,9 @@ brain_node:
       odom_factor: 1.2 
       vx_factor: 0.90 
       yaw_offset: 0.0 
-      vx_limit: 1.2 
-      vy_limit: 0.5 
-      vtheta_limit: 1.5 
+      vx_limit: 2.0
+      vy_limit: 0.8
+      vtheta_limit: 2.4
 
     strategy:
       ball_confidence_threshold: 30.0 
@@ -141,6 +141,16 @@ brain_node:
       max_residual: 0.4
 
     enable_com: True  # 是否开启队友间通信，建议打开
+
+    # 队友间高置信度球位置共享 (独立 package k1_teammate_ball)。传输复用 enable_com 的底层 UDP 通讯。
+    teammate_ball_share:
+      enable: false                   # 是否启用高置信度球位共享/融合 (关闭时沿用原有按距离选最近队友球的逻辑)
+      min_confidence_to_share: 50.0   # 自己置信度高于此值才视为可共享 (发送侧/调试用)
+      min_confidence_to_trust: 50.0   # 队友球置信度高于此值才纳入融合 (核心: 高置信度门控)
+      trust_timeout: 1.0              # 无新可信来源时维持上次结果的最长秒数
+      self_dist_threshold: 2.0        # 队友球须距我超过此值(m)才采信, 规避双方定位误差造成的大方向误判
+      teammate_timeout: 1.0           # 队友报告超过此秒数视为过期
+      require_location_known: true    # 是否要求队友自认球位已知才采信
 
     rerunLog:
       enable_tcp: false # 是否通过网络传输 log

@@ -49,6 +49,7 @@
                   <ReactiveSequence _while="goalie_mode == 'guard'">
                      <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                      <GoToReadyPosition _while="!ball_location_known" vx_limit="0.7" />
+                     <Intercept _while="ball_will_breach" squat_dist="0.9" stand_block_dist="0.2" />
                      <GoToGoalBlockingPosition _while="ball_location_known" theta_tolerance="0.2" />
                   </ReactiveSequence>
 

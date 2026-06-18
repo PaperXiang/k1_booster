@@ -1,0 +1,108 @@
+# K1 Booster 1.6 vs 1.5(main)追球(Chase)对比报告
+
+> 日期:2026-06-18
+> 对比对象:`k1_booster-1.6_remake`(1.6)与上级目录 `k1_booster-main`(你们改过的 1.5 demo)
+> 范围:追球(Chase)链路,不修改任何代码
+
+## 一、追球调用链(两版一致)
+
+`scripts/chase.sh` 启动 `tree:=chase` → `behavior_trees/chase.xml` → 球已知时调用 **`SimpleChase`** 节点 → `RobotClient::setVelocity()` → 全局限速后下发。
+
+所以"追球速度"由三处决定:
+1. `SimpleChase::tick()` 的速度公式;
+2. 节点端口默认限速;
+3. `config.yaml` 全局限速。
+
+三处均已逐行比对。
+
+## 二、关键差异一览
+
+| 位置 | 1.6 remake | 1.5 main(改过的) | 是否影响追球速度 |
+|---|---|---|---|
+| `SimpleChase::tick()` 前向公式 | `vx *= linearFactor`(仅 sigmoid) | `vx *= max(linearFactor, forwardFactor)` + 两段加速 | **是,主因** |
+| 停球距离 | `ball.range < stopDist`,即 **1.0 m**(读 XML) | 硬编码 `ballRange <= 0.7`(无视 XML) | **是** |
+| 球源 | `getBallForChase()`(预测球链路,默认关) | `brain->data->ball` 原始球 | 默认配置下等价 |
+| 节点默认 `vx_limit` / `vy_limit` | 0.6 / 0.2 | 0.6 / 0.2 | 否,完全相同 |
+| 全局 `vtheta_limit` | **1.5** rad/s | **2.4** rad/s | **是** |
+| 全局 `vx_limit` / `vy_limit` | 1.2 / 0.5 | 2.0 / 0.8 | **否(不生效,见第三节)** |
+| 丢球时行为 | 加了 `RobotFindBall`(转身找球) | 只播声音 | 1.6 更好 |
+
+文件引用:
+- `SimpleChase::tick()`:1.6 `src/brain/src/brain_tree.cpp:466`,1.5 `src/brain/src/brain_tree.cpp:489`
+- 节点端口默认值:`src/brain/include/brain_tree.h:747`(两版相同)
+- 全局限速:1.6 `src/brain/config/config.yaml:58-60`,1.5 `src/brain/config/config.yaml:27-29`
+- `setVelocity` 限幅:1.6 `src/brain/src/robot_client.cpp:225`,1.5 `src/brain/src/robot_client.cpp:200`
+- `getBallForChase`:1.6 `src/brain/src/brain.cpp:1548`
+- `chase.xml`:1.6 第 13 行新增 `RobotFindBall`,第 16 行 `SimpleChase`
+
+## 三、为什么 1.6 追球"速度不高"
+
+### 主因:`tick()` 丢掉了 1.5 的"前向保底 + 远距冲刺"逻辑
+
+1.5 的核心(`brain_tree.cpp:510-522`):
+
+```cpp
+double forwardFactor = ballRange>1.6?1.0 : ballRange>1.2?0.80 : ballRange>1.0?0.70 : ballRange>0.7?0.30 : 0.0;
+vx *= max(linearFactor, forwardFactor);                       // 前向保底,转身时也往前走
+if (posToRobot.x > 0.05) vx = max(vx, vxLimit*forwardFactor); // 强拉到保底速度
+if (ballRange > 1.6 && posToRobot.x > 0.05) vx = vxLimit;     // 远距直接满速冲
+```
+
+1.6 只剩(`brain_tree.cpp:485-489`):
+
+```cpp
+double linearFactor = 1 / (1 + exp(3*(ball.range*fabs(ball.yawToRobot)) - 3)); // 远+偏 → 趋近 0
+vx *= linearFactor;                                                            // 没有任何保底
+```
+
+`linearFactor` 只看乘积 `range × |yaw|`,**球越远、偏角越大,前向速度越被压到 0,机器人只原地转身、几乎不前进**。1.5 用 `forwardFactor` 给前向速度一个地板值,所以它边转边冲,呈对角线逼近。
+
+实测同样 (距离, 偏角) 下两版前向速度(节点上限 0.6 m/s):
+
+| 距球 | 偏角 | 1.6 vx | 1.5 vx | 结果 |
+|---|---|---|---|---|
+| 2.0 m | 对准 | 0.60 | 0.60 | 相同(都封顶) |
+| 2.0 m | 29° | 0.60 | 0.60 | 相同 |
+| 2.0 m | 40° | **0.35** | 0.60 | 1.6 慢 41% |
+| 3.0 m | 34° | **0.21** | 0.60 | 1.6 慢 66% |
+| 3.0 m | 46° | **0.03** | 0.60 | 1.6 基本原地转 |
+
+结论:**峰值速度两版都是 0.6 m/s,不是峰值问题,而是"逼近+转向阶段的有效速度"被压低了**。追球时球常在侧前方,这个区间最常出现,所以肉眼看就是"慢、犹豫、先转再走"。
+
+(说明:在 1.2–1.6 m 已对准的近球段,1.5 会用 `forwardFactor<1` 主动降速防冲过球,此时 1.6 反而略快;但整体追球印象由上面的"远距偏角"区主导。)
+
+### 次因 1:转身速度上限被砍(2.4 → 1.5 rad/s)
+
+`SimpleChase` 里 `vtheta = yaw*2.0` 在节点端**不限幅**,只受全局 `vtheta_limit` 约束。1.6 砍到 1.5 rad/s,偏角 > 43° 时转身被限速(1.5 版可到 2.4)。**转得慢 → 更久对不准球 → 前向 `linearFactor` 更久处于低值**,与主因叠加恶化。
+
+### 次因 2:停得更早(1.0 m vs 0.7 m)
+
+1.6 用 XML 的 `stop_dist=1.0` 停车;1.5 代码硬编码 `<=0.7` 停车(无视 XML)。**1.6 在离球 1.0 m 就停**,且 0.7–1.0 m 这段 1.5 还在低速蹭(`forwardFactor=0.3`),1.6 已经站住——收尾段看着像"不追了"。
+
+### 关于全局 `vx_limit` 2.0→1.2:不要误改
+
+`SimpleChase` 内部 `vx` 先被节点上限 0.6 卡死(`cap(vx, vxLimit=0.6, -0.1)`),由于 0.6 < 1.2 < 2.0,**全局 `vx_limit` / `vy_limit` 的下调对追球前向速度根本不生效**。只调它没用,真正卡速度的是节点上限 0.6 和 `tick()` 公式。`vtheta_limit` 是三个全局项里唯一对 `SimpleChase` 生效的。
+
+## 四、除速度外,针对 Chase 的优化点
+
+1. **接入已建好的预测球(最高价值,1.6 已具备但默认关闭)**
+   1.6 新增 `k1_ball_predictor` + `getBallForChase()`,但 `config.yaml:21-22` 里 `enable:false / use_for_chase:false`,整条链路休眠。开启后 `SimpleChase` 会追"球将到的位置"而非"球现在的位置",对滚动球是拦截式逼近而非尾随式追赶。建议按 `docs/ball_prediction_v1_6_plan.md` 步骤:先 `enable:true, use_for_chase:false` 看日志验证方向,再开 `use_for_chase:true`。
+
+2. **停车加滞回(防抖)**
+   `range < stopDist` 是硬阈值,球在 1.0 m 边界抖动时会反复"走-停-走"。建议用进入 0.9 m 停、离开 1.1 m 再走的滞回区间。
+
+3. **转向加阻尼,避免过冲**
+   `vtheta = yaw*2.0` 是纯比例、无微分项,叠加视觉延迟易左右过冲、画龙。可加阻尼或用预测偏角。
+
+4. **侧向(vy)长期被压死**
+   节点 `vy_limit=0.2`,1.6 又没有 1.5 的 `vy *= max(linearFactor,0.25)` 保底,横向几乎不动,只能"转身对准"而非"侧移微调"。近球微调时放开一点 vy 会更顺。
+
+5. **丢球重定位已改善,但参数偏保守**
+   1.6 在 `chase.xml:13` 加了 `RobotFindBall vyaw_limit="1.5"`(1.5 没有,只播声音),这是进步;但 `vyaw_limit=1.5` 与被砍的全局转速一致,扫描偏慢,可单独调高。
+
+6. **可借鉴完整版 `Chase` 节点的能力**
+   仓库另有功能更全的 `Chase`(`brain_tree.cpp:380` 起):自带避障(`avoid_during_chase`)、绕到射门方向的 circle-back、近球限速。`SimpleChase` 是精简版。若 demo 需更聪明的逼近,可让 `chase.xml` 改用 `Chase`,或把这些逻辑下沉到 `SimpleChase`。
+
+## 五、一句话结论
+
+1.6 追球慢不是峰值速度变低(两版前向都封顶 0.6 m/s),而是 `SimpleChase::tick()` 回退成了无"前向保底/远距冲刺"的精简公式,导致球在侧前方时只转不进;再叠加转速上限被砍(2.4→1.5)和停车距离变远(0.7→1.0 m)。**只改全局 `vx_limit` 无效**,要动的是 `tick()` 公式、节点 `stop_dist` 与全局 `vtheta_limit`。

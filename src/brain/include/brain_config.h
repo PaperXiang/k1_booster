@@ -105,6 +105,15 @@ public:
     double nearBallSpeedLimit = 0.6;       // 靠近球时的速度限制
     double nearBallRange = 2.0;            // 靠近球时的范围, 在这个范围内, 限制速度
 
+    // 队友间高置信度球位置共享 (独立 package k1_teammate_ball)。对应 config.yaml 中 teammate_ball_share.*
+    bool tmBallShareEnable = false;                 // 是否启用 (关闭时沿用原有按距离选最近队友球的逻辑)
+    double tmBallShareMinConfidenceToShare = 50.0;  // 自己置信度高于此值才视为可共享 (发送侧/调试用)
+    double tmBallShareMinConfidenceToTrust = 50.0;  // 队友球置信度高于此值才纳入融合 (高置信度门控)
+    double tmBallShareTrustTimeout = 1.0;           // 无新可信来源时维持上次结果的最长秒数
+    double tmBallShareSelfDistThreshold = 2.0;      // 队友球须距我超过此值(m)才采信
+    double tmBallShareTeammateTimeout = 1.0;        // 队友报告超过此秒数视为过期
+    bool tmBallShareRequireLocationKnown = true;    // 是否要求队友自认球位已知才采信
+
     // 球路预测参数。默认只计算、不接管追球；通过 config.yaml 中 ball_prediction 控制。
     bool ballPredictionEnable = false;
     bool ballPredictionUseForChase = false;

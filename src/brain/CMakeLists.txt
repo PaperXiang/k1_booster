@@ -18,6 +18,7 @@ find_package(booster_interface REQUIRED)
 find_package(game_controller_interface REQUIRED)
 find_package(vision_interface REQUIRED)
 find_package(k1_ball_predictor REQUIRED)
+find_package(k1_teammate_ball REQUIRED)
 find_package(booster_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -63,7 +64,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-narrowing -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers -Wno-unused-variable")
 
-ament_target_dependencies(brain_node rclcpp rosidl_typesupport_cpp std_msgs sensor_msgs behaviortree_cpp booster_interface vision_interface k1_ball_predictor game_controller_interface booster_msgs tf2 tf2_ros tf2_geometry_msgs)
+ament_target_dependencies(brain_node rclcpp rosidl_typesupport_cpp std_msgs sensor_msgs behaviortree_cpp booster_interface vision_interface k1_ball_predictor k1_teammate_ball game_controller_interface booster_msgs tf2 tf2_ros tf2_geometry_msgs)
 
 target_include_directories(brain_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

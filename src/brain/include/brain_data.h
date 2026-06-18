@@ -57,6 +57,7 @@ public:
     GameObject ball;              // 球的各项信息记录, 包含位置, boundingbox 等
     GameObject filteredBall;       // Kalman/运动模型平滑后的球，field/robot 坐标都会在预测更新中同步
     GameObject predictedBall;      // 短时预测后的球，用于可选追球；预测无效时不应使用
+    GameObject interceptBall;      // 自适应拦截目标(球将到达处)，供追球使用；球静止/预测无效时退回 predictedBall/ball
     bool ballPredictionValid = false; // 当前 predictedBall 是否可信
     bool ballPredictionPredictedOnly = false; // 当前结果是否来自丢球后的纯预测
     Point2D ballVelocityToField{0.0, 0.0}; // field 坐标系球速

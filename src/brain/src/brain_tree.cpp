@@ -42,6 +42,7 @@ void BrainTree::init()
     REGISTER_BUILDER(CamTrackBall)
     REGISTER_BUILDER(CamFindBall)
     REGISTER_BUILDER(CamFastScan)
+    REGISTER_BUILDER(CamLissajousScan)
     REGISTER_BUILDER(CamScanField)
     
     // 如果cpp里没实现这些类，注释掉，否则链接会报错。
@@ -465,11 +466,12 @@ NodeStatus Chase::tick()
 
 NodeStatus SimpleChase::tick()
 {
-    double stopDist, stopAngle, vyLimit, vxLimit;
+    double stopDist, stopAngle, vyLimit, vxLimit, vthetaLimit;
     getInput("stop_dist", stopDist);
     getInput("stop_angle", stopAngle);
     getInput("vx_limit", vxLimit);
     getInput("vy_limit", vyLimit);
+    getInput("vtheta_limit", vthetaLimit);
 
     if (!brain->tree->getEntry<bool>("ball_location_known"))
     {
@@ -478,22 +480,35 @@ NodeStatus SimpleChase::tick()
     }
 
     auto ball = brain->getBallForChase();
-    double vx = ball.posToRobot.x;
-    double vy = ball.posToRobot.y;
-    double vtheta = ball.yawToRobot * 2.0; // 后面的乘数越大, 转身越快
+    double ballRange = ball.range;
+    double ballYaw = ball.yawToRobot;
 
-    double linearFactor = 1 / (1 + exp(3 * (ball.range * fabs(ball.yawToRobot)) - 3)); // 距离远时, 优先转向
-    vx *= linearFactor;
-    vy *= linearFactor;
+    // 转向: 比例控制, 偏角越大转得越快, 由 vtheta_limit 封顶.
+    // 增益保持适中, 让前向速度带着机器人走弧线, 而不是原地打转.
+    double vtheta = cap(ballYaw * 2.0, vthetaLimit, -vthetaLimit);
+
+    // 距离因子: 远处全速逼近, 进入 stopDist 之前的 rampDist 米内线性减速到 0,
+    // 既保证远距离快速追球, 又不会冲过球.
+    const double rampDist = 0.6;
+    double distFactor = cap((ballRange - stopDist) / rampDist, 1.0, 0.0);
+
+    // 朝向因子: cos(偏角) => 球越偏, 前向越小; 开方放缓衰减, 使中小偏角(< ~45 度)仍保留大部分前向速度,
+    // 于是机器人边走边转走曲线, 只有接近 90 度(球在正侧方)才退化为原地转身.
+    double headingFactor = cos(ballYaw);
+    headingFactor = headingFactor > 0.0 ? sqrt(headingFactor) : 0.0;
+
+    double vx = vxLimit * distFactor * headingFactor;
+    // 侧向跟随: 帮助贴合弧线, 同样随接近球而衰减.
+    double vy = cap(ball.posToRobot.y * distFactor, vyLimit, -vyLimit);
 
     vx = cap(vx, vxLimit, -0.1);     // 进一步限速
     vy = cap(vy, vyLimit, -vyLimit); // vy 进一步限速
 
-    if (ball.range < stopDist)
+    if (ballRange < stopDist)
     {
         vx = 0;
         vy = 0;
-        // if (fabs(brain->data->ball.yawToRobot) < stopAngle) vtheta = 0; // uncomment 这一行, 会站住. 现在站不太稳, 就让它一直动着吧.
+        // if (fabs(ballYaw) < stopAngle) vtheta = 0; // uncomment 这一行, 会站住. 现在站不太稳, 就让它一直动着吧.
     }
 
     brain->client->setVelocity(vx, vy, vtheta, false, false, false);
@@ -1651,60 +1666,61 @@ void StandStill::onHalted()
 
 NodeStatus RobotFindBall::onStart()
 {
-    auto log = [=](string msg) {
-        // brain->log->setTimeNow();
-        // brain->log->log("debug/RobotFindBall", rerun::TextLog(msg));
-    };
-    log("RobotFindBall onStart");
-
-    if (brain->data->ballDetected)
-    {
-        brain->client->setVelocity(0, 0, 0);
-        return NodeStatus::SUCCESS;
+    _stableDetectedCount = brain->data->ballDetected ? 1 : 0;
+    // 初始转向: 自己看不到球但队友球位可信时, 朝队友给的方向转; 否则朝记忆中球的方向转
+    if (brain->tree->getEntry<bool>("tm_ball_pos_reliable") && !brain->tree->getEntry<bool>("ball_location_known")) {
+        _turnDir = brain->data->tmBall.yawToRobot > 0 ? 1.0 : -1.0;
+    } else {
+        _turnDir = brain->data->ball.yawToRobot > 0 ? 1.0 : -1.0;
     }
-    _turnDir = brain->data->ball.yawToRobot > 0 ? 1.0 : -1.0;
 
     return NodeStatus::RUNNING;
 }
 
 NodeStatus RobotFindBall::onRunning()
 {
-    auto log = [=](string msg) {
-        // brain->log->setTimeNow();
-        // brain->log->log("debug/RobotFindBall", rerun::TextLog(msg));
-    };
-    log("RobotFindBall onRunning");
+    double vyawLimit, transitionVx;
+    getInput("vyaw_limit", vyawLimit);
+    getInput("transition_vx", transitionVx);
 
-    if (brain->data->ballDetected)
-    {
-        brain->client->setVelocity(0, 0, 0);
+    // 已完成定位, 交回上层(由决策/追球接管). 用 ball_location_known 而非瞬时 ballDetected,
+    // 避免单帧误检就退出找球.
+    if (brain->tree->getEntry<bool>("ball_location_known")) {
         return NodeStatus::SUCCESS;
     }
 
-    double vyawLimit;
-    getInput("vyaw_limit", vyawLimit);
-
-    double vx = 0;
-    double vy = 0;
-    double vtheta = 0;
-    if (brain->data->ball.range < 0.3)
-    { // 记忆中的球位置太近了, 后退一点
-      // vx = cap(-brain->data->ball.posToRobot.x, 0.2, -0.2);
-      // vy = cap(-brain->data->ball.posToRobot.y, 0.2, -0.2);
+    // 看到球: 朝球比例转向, 同时低速前进做衔接(连续稳定检测到才提速), 让转身->追球更顺滑
+    if (brain->data->ballDetected)
+    {
+        double yawErr = brain->data->ball.yawToRobot;
+        double vtheta = cap(yawErr * 1.2, vyawLimit, -vyawLimit);
+        _stableDetectedCount++;
+        double vx = _stableDetectedCount >= 3 ? transitionVx : transitionVx * 0.5;
+        brain->client->setVelocity(vx, 0, vtheta);
+        return NodeStatus::RUNNING;
     }
-    // vtheta = _turnDir > 0 ? vyawLimit : -vyawLimit;
+
+    _stableDetectedCount = 0;
+
+    // 自己没看到, 但队友球位可信: 头与身体一起转向队友给的球位, 加速汇合
+    if (brain->tree->getEntry<bool>("tm_ball_pos_reliable")) {
+        double yawErr = brain->data->tmBall.yawToRobot;
+        double vtheta = cap(yawErr * 2.0, vyawLimit, -vyawLimit);
+        brain->client->moveHead(brain->data->tmBall.pitchToRobot, brain->data->tmBall.yawToRobot);
+        brain->client->setVelocity(0, 0, vtheta);
+        return NodeStatus::RUNNING;
+    }
+
+    // 都没有: 朝最后已知方向匀速原地转身, 转满一圈以保证扫到球(配合 CamLissajousScan 竖向快扫)
     brain->client->setVelocity(0, 0, vyawLimit * _turnDir);
     return NodeStatus::RUNNING;
 }
 
 void RobotFindBall::onHalted()
 {
-    auto log = [=](string msg) {
-        // brain->log->setTimeNow();
-        // brain->log->log("debug/RobotFindBall", rerun::TextLog(msg));
-    };
-    log("RobotFindBall onHalted");
     _turnDir = 1.0;
+    _stableDetectedCount = 0;
+    brain->client->setVelocity(0, 0, 0); // 退出找球时确保停下身体, 防止残留转身速度
 }
 
 NodeStatus CamFastScan::onStart()
@@ -1727,6 +1743,79 @@ NodeStatus CamFastScan::onRunning()
     _cmdIndex++;
     _timeLastCmd = brain->get_clock()->now();
     brain->client->moveHead(_cmdSequence[_cmdIndex][0], _cmdSequence[_cmdIndex][1]);
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus CamLissajousScan::onStart()
+{
+    _startTime = brain->get_clock()->now();
+
+    double pitchCenter, pitchAmplitude, yawAmplitude;
+    getInput("pitch_center", pitchCenter);
+    getInput("pitch_amplitude", pitchAmplitude);
+    getInput("yaw_amplitude", yawAmplitude);
+
+    // 按当前头部姿态对齐起始相位, 使扫描从当前位置平滑接入, 避免起始瞬间头部跳变
+    // pitch = pitchCenter + pitchAmplitude * cos(phase)  =>  phase = acos(...)
+    if (pitchAmplitude > 0.01) {
+        _pitchPhase = acos(cap((brain->data->headPitch - pitchCenter) / pitchAmplitude, 1.0, -1.0));
+    } else {
+        _pitchPhase = 0.0;
+    }
+    // yaw = yawAmplitude * sin(phase)  =>  phase = asin(...)
+    if (yawAmplitude > 0.01) {
+        _yawPhase = asin(cap(brain->data->headYaw / yawAmplitude, 1.0, -1.0));
+    } else {
+        _yawPhase = 0.0;
+    }
+
+    return NodeStatus::RUNNING;
+}
+
+NodeStatus CamLissajousScan::onRunning()
+{
+    // 自己没看到球, 但队友球位可信: 不强行扫描, 交由身体(RobotFindBall)转向队友球位
+    if (
+        !brain->data->ballDetected
+        && !brain->tree->getEntry<bool>("ball_location_known")
+        && brain->tree->getEntry<bool>("tm_ball_pos_reliable")
+    ) {
+        return NodeStatus::RUNNING;
+    }
+
+    double pitchCenter, pitchAmplitude, yawAmplitude, pitchCycleMsec, frequencyRatio;
+    getInput("pitch_center", pitchCenter);
+    getInput("pitch_amplitude", pitchAmplitude);
+    getInput("yaw_amplitude", yawAmplitude);
+    getInput("pitch_cycle_msec", pitchCycleMsec);
+    getInput("frequency_ratio", frequencyRatio);
+    if (pitchCycleMsec <= 1.0) pitchCycleMsec = 1000.0;
+    if (frequencyRatio < 1.0) frequencyRatio = 1.0; // 保护: pitch(快轴)不应慢于 yaw(慢轴)
+
+    // 看到球: 立即切换为视线跟踪, 把球收到画面中心, 便于稳定定位 (适配 1.6 视觉字段)
+    if (brain->data->ballDetected) {
+        const double xCenter = brain->config->camPixX / 2.0;
+        const double yCenter = brain->config->camPixY / 2.0;
+        double ballX = mean(brain->data->ball.boundingBox.xmax, brain->data->ball.boundingBox.xmin);
+        double ballY = mean(brain->data->ball.boundingBox.ymax, brain->data->ball.boundingBox.ymin);
+        double deltaYaw = (ballX - xCenter) / brain->config->camPixX * brain->config->camAngleX / 2.0;
+        double deltaPitch = (ballY - yCenter) / brain->config->camPixY * brain->config->camAngleY / 2.0;
+        brain->client->moveHead(brain->data->headPitch + deltaPitch, brain->data->headYaw - deltaYaw);
+        return NodeStatus::RUNNING;
+    }
+
+    // 否则做"竖快横慢"的李萨如扫描:
+    //   pitch(快轴) 每 pitch_cycle_msec 完整上下扫一遍 -> 每个方位的远/近都覆盖;
+    //   yaw(慢轴) 周期 = pitch_cycle_msec * frequency_ratio, 与快轴非 1:1 -> 填满 yaw×pitch。
+    // pitch 周期远短于身体转一圈的时间, 与转身解耦, 从根本上避免
+    // "半圈只看到椭圆下半、半圈只看到上半" 的问题。
+    double tSec = brain->msecsSince(_startTime) / 1000.0;
+    double omegaPitch = 2.0 * M_PI / (pitchCycleMsec / 1000.0);
+    double omegaYaw = omegaPitch / frequencyRatio;
+    double pitch = pitchCenter + pitchAmplitude * cos(omegaPitch * tSec + _pitchPhase);
+    double yaw = yawAmplitude * sin(omegaYaw * tSec + _yawPhase);
+
+    brain->client->moveHead(pitch, yaw); // moveHead 内含软限位, 此处不重复夹紧
     return NodeStatus::RUNNING;
 }
 

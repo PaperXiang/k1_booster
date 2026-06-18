@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include "../types.h"
 #include "./print.h"
+#include "./intercept.h"
 
 using namespace std;
 

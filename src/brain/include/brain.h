@@ -17,6 +17,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <k1_ball_predictor/ball_motion_predictor.hpp>
+#include <k1_teammate_ball/teammate_ball_sharing.hpp>
 
 #include "booster_interface/msg/odometer.hpp"
 #include "booster_interface/msg/low_state.hpp"
@@ -68,6 +69,9 @@ public:
     std::shared_ptr<Locator> locator;
     // 球路预测器，在 field 坐标系中平滑并短时外推球的位置
     std::shared_ptr<k1_ball_predictor::BallMotionPredictor> ballPredictor;
+
+    // 队友间高置信度球位置共享/融合 (独立 package k1_teammate_ball)。是否启用由 config->tmBallShareEnable 决定。
+    std::shared_ptr<k1_teammate_ball::TeammateBallSharing> teammateBall;
 
     // BrainTree 对象，里面包含 BehaviorTree 相关的操作
     std::shared_ptr<BrainTree> tree;
