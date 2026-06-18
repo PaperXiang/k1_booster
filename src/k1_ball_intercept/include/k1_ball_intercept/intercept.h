@@ -14,6 +14,9 @@
 // ok=true  表示解到有限正根 (可拦截);
 // ok=false 表示无正根 (追不上 / 球在远离) -> 返回 maxLead 作为回退建议, 仍朝球前方迎截而非尾随.
 // 返回值始终是夹紧到 [0, maxLead] 的提前时间.
+
+namespace k1_ball_intercept {
+
 inline double solveInterceptTime(double rx, double ry, double vx, double vy,
                                  double s, double maxLead, bool &ok)
 {
@@ -53,3 +56,5 @@ inline double solveInterceptTime(double rx, double ry, double vx, double vy,
     // 无解 (追不上或球远离): 回退到最大提前量
     return maxLead;
 }
+
+} // namespace k1_ball_intercept

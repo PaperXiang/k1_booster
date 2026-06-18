@@ -1,14 +1,16 @@
 // 独立单元测试: solveInterceptTime (追逐拦截解算), 无 ROS / Eigen 依赖.
 //
 // 手动编译运行 (不接入 colcon, 避免构建风险):
-//   g++ -std=c++17 src/brain/test/test_intercept_time.cpp -o /tmp/test_intercept && /tmp/test_intercept
+//   g++ -std=c++17 -Isrc/k1_ball_intercept/include src/k1_ball_intercept/test/test_intercept_time.cpp -o /tmp/test_intercept && /tmp/test_intercept
 // 预期输出: "ALL INTERCEPT TESTS PASSED" 且退出码 0.
 
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 
-#include "../include/utils/intercept.h"
+#include "k1_ball_intercept/intercept.h"
+
+using k1_ball_intercept::solveInterceptTime;
 
 static bool approx(double a, double b, double tol = 1e-2) {
     return std::fabs(a - b) <= tol;
