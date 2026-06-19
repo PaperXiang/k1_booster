@@ -611,6 +611,25 @@ private:
     Brain *brain;
 };
 
+// 全位姿校正(含朝向 theta): 中圈与中线的两个 XCross 交点 -> 一次性解出 (x, y, theta)。
+// 借鉴 B-Human "center circle with center line" 复合特征, 弥补其余几何校正器"只纠平移不纠朝向"的短板。
+// 默认不接入 subtree_locate.xml, 零运行时风险; 验证后再灰度挂入。
+class SelfLocateCircle : public SyncActionNode {
+public:
+    SelfLocateCircle(const string &n, const NodeConfig &c, Brain *b) : SyncActionNode(n,c), brain(b) {}
+    NodeStatus tick() override;
+    static PortsList providedPorts() {
+        return {
+            InputPort<double>("msecs_interval", 1000, ""),
+            InputPort<double>("max_dist", 2.0, ""),
+            InputPort<double>("max_drift", 1.0, ""),
+            InputPort<double>("max_theta_drift", 0.6, "朝向最大修正量(rad), 同时拒绝 pi 级翻转"),
+        };
+    };
+private:
+    Brain *brain;
+};
+
 class MoveToPoseOnField : public SyncActionNode
 {
 public:

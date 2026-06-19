@@ -58,6 +58,7 @@ void BrainTree::init()
     REGISTER_BUILDER(SelfLocateLT)
     REGISTER_BUILDER(SelfLocatePT)
     REGISTER_BUILDER(SelfLocateBorder)
+    REGISTER_BUILDER(SelfLocateCircle) // 全位姿(含朝向)校正; 默认未接入 subtree_locate.xml
 
     REGISTER_BUILDER(SetVelocity)
     REGISTER_BUILDER(RobocupWalk)
@@ -2593,6 +2594,95 @@ NodeStatus SelfLocate2X::tick()
             .with_labels({"1p"})
     );
     brain->calibrateOdom(hypoPose.x, hypoPose.y, hypoPose.theta);
+    brain->data->lastSuccessfulLocalizeTime = brain->get_clock()->now();
+    return NodeStatus::SUCCESS;
+}
+
+NodeStatus SelfLocateCircle::tick()
+{
+    double interval = getInput<double>("msecs_interval").value();
+    double maxDist = getInput<double>("max_dist").value();
+    if (brain->client->isStandingStill(2000)) maxDist *= 1.5; // 静态下允许更远
+    double maxDrift = getInput<double>("max_drift").value();
+    double maxThetaDrift = getInput<double>("max_theta_drift").value();
+
+    auto log = brain->log;
+    log->setTimeNow();
+    string logPathS = "/locate/circle/success";
+    string logPathF = "/locate/circle/fail";
+
+    auto msecs = brain->msecsSince(brain->data->lastSuccessfulLocalizeTime);
+    if (msecs < interval) {
+        log->log(logPathF, rerun::TextLog(format("Failed, msecs(%.1f) < interval(%.1f)", msecs, interval)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 需要恰好 2 个 XCross (中圈与中线的两个交点)
+    auto points = brain->data->getMarkingsByType({"XCross"});
+    if (points.size() != 2) {
+        log->log(logPathF, rerun::TextLog(format("Failed, XCross cnt(%d) != 2", points.size())));
+        return NodeStatus::SUCCESS;
+    }
+    auto p0 = points[0]; auto p1 = points[1];
+    if (p0.range > maxDist || p1.range > maxDist) {
+        log->log(logPathF, rerun::TextLog(format("Failed, range p0(%.2f)/p1(%.2f) > maxDist(%.2f)", p0.range, p1.range, maxDist)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 几何自检(机器人系, 与当前位姿无关): 两交点间距 ≈ 中圈直径
+    double dxr = p1.posToRobot.x - p0.posToRobot.x;
+    double dyr = p1.posToRobot.y - p0.posToRobot.y;
+    double sep = norm(dxr, dyr);
+    double mapSep = brain->config->fieldDimensions.circleRadius * 2.0;
+    if (fabs(sep - mapSep) > 0.5) {
+        log->log(logPathF, rerun::TextLog(format("Failed, sep(%.2f) far from circle diameter(%.2f)", sep, mapSep)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 朝向: 两交点连线在机器人系的方向 beta; 中线在场地系沿 ±y(方向 ±pi/2)
+    // => theta = ±pi/2 - beta, 取与当前朝向最接近者 (消 180° 二义性)
+    double beta = atan2(dyr, dxr);
+    double thetaA = toPInPI(M_PI / 2.0 - beta);
+    double thetaB = toPInPI(thetaA + M_PI);
+    double cur = brain->data->robotPoseToField.theta;
+    double theta = fabs(toPInPI(thetaA - cur)) <= fabs(toPInPI(thetaB - cur)) ? thetaA : thetaB;
+
+    double thetaDrift = fabs(toPInPI(theta - cur));
+    if (thetaDrift > maxThetaDrift) { // 朝向修正过大(含 pi 翻转) -> 拒绝, 交由 SET/入场全局定位修复
+        log->log(logPathF, rerun::TextLog(format("Failed, theta drift(%.2f) > max(%.2f)", thetaDrift, maxThetaDrift)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 位置: 场地中心在 (0,0); 机器人系中圈中点 M_r; 机器人场地位姿 t = -R(theta)·M_r
+    double mrx = (p0.posToRobot.x + p1.posToRobot.x) / 2.0;
+    double mry = (p0.posToRobot.y + p1.posToRobot.y) / 2.0;
+    double ct = cos(theta), st = sin(theta);
+    double x = - (mrx * ct - mry * st);
+    double y = - (mrx * st + mry * ct);
+
+    double drift = norm(x - brain->data->robotPoseToField.x, y - brain->data->robotPoseToField.y);
+    if (drift > maxDrift) {
+        log->log(logPathF, rerun::TextLog(format("Failed, pos drift(%.2f) > maxDrift(%.2f)", drift, maxDrift)));
+        return NodeStatus::SUCCESS;
+    }
+
+    Pose2D hypoPose = brain->data->robotPoseToField;
+    hypoPose.x = x;
+    hypoPose.y = y;
+    hypoPose.theta = theta;
+
+    // 全地标一致性校验 (误检过滤, 对应 B-Human 的 false-positive 过滤)
+    auto allMarkers = brain->data->getMarkersForLocator();
+    if (allMarkers.size() > 0) {
+        double residual = brain->locator->residual(allMarkers, hypoPose) / allMarkers.size();
+        if (residual > brain->locator->residualTolerance) {
+            log->log(logPathF, rerun::TextLog(format("Failed, residual(%.2f) > tolerance(%.2f)", residual, brain->locator->residualTolerance)));
+            return NodeStatus::SUCCESS;
+        }
+    }
+
+    log->log(logPathS, rerun::TextLog(format("Success. posDrift=%.2f thetaDrift=%.2f", drift, thetaDrift)));
+    brain->calibrateOdom(hypoPose.x, hypoPose.y, hypoPose.theta); // ★含朝向地重置 odom->field
     brain->data->lastSuccessfulLocalizeTime = brain->get_clock()->now();
     return NodeStatus::SUCCESS;
 }

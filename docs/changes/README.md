@@ -35,6 +35,7 @@
 | 2026-06-19 | [localization_bugfixes](2026-06-19_localization_bugfixes.md) | P1-1：修定位 5 处笔误(2X/_doubleX 中点、LT/PT 跨数组循环、markerType 未初始化) |
 | 2026-06-19 | [head_dof_clamp](2026-06-19_head_dof_clamp.md) | P1-3：头部限位按官方 DOF 收口(yaw±1.0、低头≤0.85、两端夹) |
 | 2026-06-19 | [dead_code_annotations](2026-06-19_dead_code_annotations.md) | P1-4：标注 safe_shoot/RoleSwitch/visual_defend/cmd==100 等死分支(纯注释) |
+| 2026-06-19 | [selflocate_circle](2026-06-19_selflocate_circle.md) | P2-1：实现全位姿(含朝向)校正 SelfLocateCircle(中圈+中线)，默认不挂级联 |
 
 > 0618 当天的其余改动（队友球共享包、intercept 分离、定位崩溃修复、扑救删除）见
 > `docs/0618_总变更_2026-06-18.md`，本约定从 2026-06-19 起执行。

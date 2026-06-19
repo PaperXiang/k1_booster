@@ -1,0 +1,45 @@
+# 变更报告: 比赛中朝向校正 SelfLocateCircle（P2-1，全位姿）
+
+- 日期 / 作者：2026-06-19 / 与 PaperXiang 结对
+- 类型：功能新增（定位校正节点）
+- 默认是否生效：**否**。已实现+注册，但**未挂入 `subtree_locate.xml` 级联** → 运行时零效果、零风险。
+- 开关与回退：在 `subtree_locate.xml` 取消那行 `<SelfLocateCircle .../>` 注释即启用；删/注释即回退。
+
+## 1. 动机
+当前所有几何校正器**只纠平移 (dx,dy)，从不纠朝向 θ**（`定位策略分析_2026-06-18.md` §10.4）——一旦打滑/陀螺漂移导致朝向歪，比赛中无法修复，只能等 SET/入场全局定位。这是团队自评"定位极差"的最大结构性短板。借鉴 B-Human "center circle with center line" 复合特征：用中圈与中线的两个交点**一次解出含朝向的全局位姿**。
+
+> 背景：0618 曾在 XML 引用 `SelfLocateCircle/SelfLocatePenalty` 但**从未实现**，导致 game.xml 加载崩溃（已于本会话修复=删 XML 引用）。本次是**真正实现**：声明 + 实现 + 注册，且默认不挂，杜绝重蹈覆辙。
+
+## 2. 改了什么（文件）
+| 文件 | 改动 |
+|---|---|
+| `brain_tree.h`(~:617) | 新增 `class SelfLocateCircle`，端口 `msecs_interval/max_dist/max_drift/max_theta_drift(0.6)` |
+| `brain_tree.cpp`(~:2601) | 实现 `SelfLocateCircle::tick()` |
+| `brain_tree.cpp`(:61) | `REGISTER_BUILDER(SelfLocateCircle)` |
+| `subtree_locate.xml` | 更新注释 + 留一行**注释掉的**就绪用法（默认不启用） |
+
+## 3. 算法（对齐既有校正器范式）
+1. 频率闸门（`msecs_interval`）；取**恰好 2 个 XCross**，均在 `max_dist` 内。
+2. 几何自检（**机器人系、与当前位姿无关**）：两交点间距 ≈ 中圈直径 `2·circleRadius`，偏差>0.5 拒绝。
+3. **朝向**：两交点连线机器人系方向 `β`；中线在场地系沿 ±y(±π/2) → `θ = ±π/2 − β`，取与当前 `robotPoseToField.theta` 最近者（消 180° 二义）。
+4. **位置**：场地中心=(0,0)，机器人系中点 `M_r` → 机器人场地位姿 `t = −R(θ)·M_r`。
+5. 门限：`|θ−当前θ| > max_theta_drift(0.6)` 拒绝（**同时拒绝 π 翻转**）；位置 `drift > max_drift` 拒绝。
+6. **全地标残差一致性校验**（`locator->residual ≤ residualTolerance`，误检过滤）。
+7. 通过 → `calibrateOdom(x, y, θ)` **含朝向**重置 odom→field。
+
+> 数学已手算验证：机器人(0,−2)朝 +x、中圈在(0,0)的算例可正确解回 (0,−2,0)；对两交点顺序无关。
+
+## 4. 风险
+- **当前零**：未挂入级联。
+- 启用后（中）：属"已大致定位下的精修"，不替代入场全局定位；`max_theta_drift` 偏保守，真实大朝向误差会被拒（需 SET/入场修复）。残差校验把关误检。
+- 仅在中圈+中线两交点同时入镜（约 ≤5m）时触发。
+
+## 5. 如何验证（启用前必做）
+1. `colcon build --packages-select brain`；起 `game.xml` 确认**不崩**（节点已注册，即使不挂也要能编过）。
+2. **先不挂级联**，机器人站在能看到中圈处，看日志 `/locate/circle/success|fail` 是否在合理时给出 success，校正量(posDrift/thetaDrift)是否合理。
+3. 合理后，取消 `subtree_locate.xml` 那行注释（置于平移校正器之前），仿真/回放观察 WebUI `R+朝向线` 是否更贴合、朝向漂移是否被纠回。
+4. 不稳就重新注释回退。
+
+## 6. 后续
+- **SelfLocatePenalty（罚球点+禁区前线 → 全位姿）尚未实现**：覆盖贴近球门、看不到中圈的半场，与本节点互补。需先确认 `processFieldLines/identifyFieldLine` 对禁区前线的 `type/dir` 标注约定，再按本节点同范式实现。**切勿在实现前于 XML 引用**（会崩）。
+- 来源：`docs/定位策略分析_2026-06-18.md` §12；P1-1 已修复其依赖的 `SelfLocate2X/_doubleX` 中点笔误。
