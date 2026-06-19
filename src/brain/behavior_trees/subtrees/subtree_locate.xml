@@ -10,7 +10,9 @@
         <!-- SelfLocatePenalty 尚未实现, 切勿引用(未注册节点会导致 game.xml 加载时 BTCPP 抛异常、启动即崩)。 -->
         <SelfLocate1M msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocate2T msecs_interval="300" max_dist="5.0" max_drift="3.5" />
-        <SelfLocatePT msecs_interval="300" max_dist="5.0" max_drift="3.5" />
+        <!-- SelfLocatePT 暂注释回休眠(2026-06-19): 几何 bug 已修, 但重新激活后未实机验证。
+             注释 = 回到它原本就不生效的状态, 零损失; 验证 /locate/pt/success 合理后取消下一行注释即启用。 -->
+        <!-- <SelfLocatePT msecs_interval="300" max_dist="5.0" max_drift="3.5" /> -->
         <SelfLocateLT msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocate2X msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocateBorder msecs_interval="300" max_dist="5.0" max_drift="3.5"/>
