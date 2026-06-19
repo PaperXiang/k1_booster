@@ -2214,8 +2214,8 @@ bool SelfLocateLocal::_doubleX() {
     auto p0 = points[0]; auto p1 = points[1];
 
     if (
-        fabs(p0.posToField.y - p1.posToField.y) > 0.3 // 方向不对
-        || fabs(fabs(p0.posToField.y - p1.posToField.y) - brain->config->fieldDimensions.circleRadius * 2.0) > 0.5 // 距离不对
+        fabs(p0.posToField.x - p1.posToField.x) > 0.3 // 方向不对(两 X 应在中线上, x 接近; 原误写为 .y)
+        || fabs(fabs(p0.posToField.y - p1.posToField.y) - brain->config->fieldDimensions.circleRadius * 2.0) > 0.5 // 距离不对(y 间距≈中圈直径)
         || p0.range > 5.0 || p1.range > 5.0 // 太远
     ) {
         brain->log->log("SelfLocateLocal/DoubleX",
@@ -2957,7 +2957,7 @@ NodeStatus SelfLocatePT::tick()
             if (t.range > maxDist) continue;
             if (
                 fabs(t.posToField.x - p.posToField.x) < 0.5
-                && fabs(fabs(t.posToField.x - p.posToField.x) - fabs(fd.goalAreaWidth - fd.goalWidth) / 2.0) < 0.3
+                && fabs(fabs(t.posToField.y - p.posToField.y) - fabs(fd.goalAreaWidth - fd.goalWidth) / 2.0) < 0.3 // 原误写为 .x: 球门柱与球门区 T 的间隔在 y 方向
             ) {
                 found = true;
                 break;
@@ -2985,7 +2985,7 @@ NodeStatus SelfLocatePT::tick()
     for (auto half: halfs) {
         for (auto side: sides) {
             pos_m = {
-                half * (fd.length), 
+                half * (fd.length / 2.0), // 球门区 T 在底线上, x = ±length/2 (原误写为 fd.length, 落到场外致永不匹配)
                 side * (fd.goalAreaWidth / 2.0)
             };
             double dist = norm(pos_o.x - pos_m.x, pos_o.y - pos_m.y);
