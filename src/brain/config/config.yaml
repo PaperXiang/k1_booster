@@ -70,8 +70,9 @@ brain_node:
       near_ball_range: 2.0 
       soft_kickoff: false 
       soft_kickoff_speed: 0.3 
-      kick_range: 1.0 
-      kick_theta_range: 0.2 
+      kick_range: 1.0
+      kick_theta_range: 0.2
+      adjust_timeout_secs: 0.0  # >0: adjust(绕球对位)持续超过该秒数则强制退回 chase, 防绕球死锁; 0=关闭(默认,行为不变)
       abort_kick_when_ball_moved: true 
       abort_kick_ball_move_threshold: 0.3 
       abort_shoot_when_ball_moved: true  

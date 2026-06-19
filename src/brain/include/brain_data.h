@@ -151,6 +151,13 @@ public:
     bool tmImInVisualKick = false; // 自己是否处于 visual kick 模式
     bool shouldExitRLVisionKick = false; // 是否需要主动退出 visual kick 模式
 
+    // 队友球共享 (k1_teammate_ball) 融合结果, 仅用于 WebUI 验证展示 (tmBallShareEnable 关闭时 active=false)
+    bool tmBallShareActive = false;     // 当前是否走"高置信度共享融合"路径 (= config tmBallShareEnable)
+    bool tmBallShareReliable = false;   // 本帧是否得到可信的队友共享球
+    int tmBallShareSourceId = 0;        // 采用的队友 playerId (0=无来源)
+    double tmBallShareConfidence = 0.;  // 采用球的置信度
+    bool tmBallShareFresh = false;      // 是否本帧新来源 (false=超时保持上次结果)
+
     // 通讯相关
     int discoveryMsgId = 0;
     rclcpp::Time discoveryMsgTime;

@@ -255,6 +255,7 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<bool>("strategy.enable_bypass", false);
     declare_parameter<bool>("strategy.enable_shoot", false);
     declare_parameter<bool>("strategy.enable_directional_kick", false);
+    declare_parameter<double>("strategy.adjust_timeout_secs", 0.0);
 
     declare_parameter<bool>("ball_prediction.enable", false);
     declare_parameter<bool>("ball_prediction.use_for_chase", false);
@@ -841,7 +842,16 @@ string Brain::buildWebuiStatusJson() {
         appendNumber(oss, msecsSince(tm.timeLastCom));
         oss << "}";
     }
-    oss << "]}";
+    oss << "]";
+    // 队友球共享 (k1_teammate_ball) 融合结果, 供 WebUI 验证"共享信息"是否生效
+    oss << ",\"ball_share\":{\"active\":" << (data->tmBallShareActive ? "true" : "false");
+    oss << ",\"reliable\":" << (data->tmBallShareReliable ? "true" : "false");
+    oss << ",\"source_player_id\":" << data->tmBallShareSourceId;
+    oss << ",\"confidence\":";
+    appendNumber(oss, data->tmBallShareConfidence);
+    oss << ",\"fresh\":" << (data->tmBallShareFresh ? "true" : "false");
+    oss << "}";
+    oss << "}";
 
     const auto robots = data->getRobots();
     const auto obstacles = data->getObstacles();
@@ -1051,6 +1061,12 @@ void Brain::handleCooperation() {
             data->robotPoseToField.x, data->robotPoseToField.y,
             tree->getEntry<bool>("ball_location_known"),
             get_clock()->now().seconds());
+        // 暴露融合结果给 WebUI 验证 (谁的球被采用/置信度/是否新鲜)
+        data->tmBallShareActive = true;
+        data->tmBallShareReliable = fused.reliable;
+        data->tmBallShareSourceId = fused.source_player_id;
+        data->tmBallShareConfidence = fused.confidence;
+        data->tmBallShareFresh = fused.is_fresh;
         if (fused.reliable) {
             log_(format("[tmBallShare] reliable tm ball: PlayerID=%d conf=%.0f fresh=%d", fused.source_player_id, fused.confidence, fused.is_fresh));
             data->tmBall.posToField.x = fused.x;
@@ -1067,6 +1083,7 @@ void Brain::handleCooperation() {
         }
     } else {
         // ===== 原有逻辑 (tmBallShareEnable=false 时保持不变): 仅按 ballDetected + 距离选最近队友球 =====
+        data->tmBallShareActive = false;
         static rclcpp::Time lastTmBallPosTime = get_clock()->now();
         const double TM_BALL_TIMEOUT = 1000.;
         const double RANGE_THRESHOLD = config->tmBallDistThreshold;

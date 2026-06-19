@@ -1,0 +1,53 @@
+# 变更报告: 让比赛用的 `Chase` 节点走弧线而非原地转
+
+- 日期 / 提交 / 作者：2026-06-19 / 未提交(工作区) / 与 PaperXiang 结对
+- 类型：行为修改
+- 默认是否生效：**节点默认 `arc_walk=false`（=原行为）**；比赛子树里显式设 `arc_walk="true"` 开启
+- 开关与回退：把 `subtree_striker_play.xml` / `subtree_goal_keeper_play.xml` 两处 `arc_walk="true"` 改回 `"false"` 即可（只需重装 XML，不必重编 C++ 行为）
+
+## 1. 动机（为什么改）
+
+0618 把"走弧线"的公式只改进了 `SimpleChase`，但 **`SimpleChase` 只用于 `chase.xml`（`scripts/chase.sh` 调试树）和手柄 `assist_chase` 分支**。
+**自动比赛（`game.xml` → StrikerPlay / GoalKeeperPlay）追球用的是另一个节点 `Chase`**（`subtree_striker_play.xml:37`、`subtree_goal_keeper_play.xml:40`），0618 没碰它。
+即"边走边转"的改进当时**根本没进比赛**——之前用 `chase.sh` 看到的提升，在正式比赛里不存在。
+
+## 2. 改了什么（文件 + 一句话）
+
+| 文件 | 改动 |
+|---|---|
+| `src/brain/include/brain_tree.h` | `Chase` 节点新增端口 `arc_walk`（默认 `false`） |
+| `src/brain/src/brain_tree.cpp` | `Chase::tick()` 读取 `arc_walk`；为 true 时前向速度用 `√cos(偏角)` 因子，否则用原 `sigmoid` |
+| `src/brain/behavior_trees/subtrees/subtree_striker_play.xml` | 前锋追球 `<Chase ... arc_walk="true" />` |
+| `src/brain/behavior_trees/subtrees/subtree_goal_keeper_play.xml` | 守门追球 `<Chase ... arc_walk="true" />` |
+
+## 3. 对比原先（before → after）
+
+`Chase::tick()` 非避障分支里，前向速度的衰减因子（θ = 到目标点偏角）：
+
+| 偏角 θ | 原 `sigmoid(|θ|,1,3)` | 新 `√cos(θ)` |
+|---|---|---|
+| 0° | 0.95 | 1.00 |
+| 29° | 0.82 | 0.93 |
+| **57°** | **0.50** | **0.74** |
+| 86° | 0.18 | 0.26 |
+| ≥90° | ~0.15 | 0 |
+
+效果：球在侧前方（30°–86°）时，前向速度从被砍一半变成保留约 3/4，机器人**边走边转走斜线逼近**，而不是先原地转对准再走。≥90°（目标在正侧/身后）退化为原地转，符合预期。
+说明：追球顶速仍由节点端口 `vx_limit`（前锋 0.9、守门 1.5）决定，本改动只改"转向阶段保留多少前向"，不改顶速；`vx_limit`（全局 2.0）按要求未动。
+
+## 4. 风险
+
+- 中等：`Chase` 也负责"绕到球后方再踢"（circle_back）。前向更激进后，需确认**到球角度仍适合踢**、不会贴太近把球蹭歪。
+- 仅影响 `decision=='chase'` 阶段；`adjust`/`kick`/`assist` 不变。
+- 端口默认 false，未显式开启的任何 `Chase` 用法（如别的树）行为不变。
+
+## 5. 如何验证
+
+- 离线：`colcon build --packages-select brain`（**动了 C++，必须重编**，否则起树会报未知端口 `arc_walk`）；起 `game.xml` 确认不崩。
+- 赛场：球放**侧前方 2–3m** 触发追球——看是**斜线边走边转**（成功）还是**先原地转再走**（没生效/没重装）。盯 circle_back 到球角度是否还能正常起脚。不对就把对应 `arc_walk` 设回 `false`。
+
+## 6. 关联文档 / 代码位置
+
+- `Chase::tick()`：`src/brain/src/brain_tree.cpp`（非避障分支 `vx *= ...`）
+- `sigmoid`：`src/brain/include/utils/math.h:125`
+- 背景：`docs/chase_compare_1_5_vs_1_6_2026_06_18.md`（注意：该文档分析的是 `SimpleChase`/调试树，不是比赛的 `Chase`）、`docs/0618_总变更_2026-06-18.md` §1

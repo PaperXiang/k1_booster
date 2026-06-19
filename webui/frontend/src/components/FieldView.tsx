@@ -279,11 +279,40 @@ export default function FieldView({ snapshot }: FieldViewProps) {
   const teammates = entityArray(status?.team?.teammates);
   const goalposts = entityArray(perception?.goalposts);
   const fieldLines = entityArray(perception?.field_lines);
+  const opponents = entityArray(perception?.opponents);
+  const obstacles = entityArray(perception?.obstacles);
   const teammateMarkers = makeMarkers(teammates, 'T', 'teammate', fieldLength, fieldWidth);
   const teammateBallMarkers = makeBallMarkers(teammates, fieldLength, fieldWidth);
   const goalpostMarkers = makeMarkers(goalposts, 'G', 'goalpost', fieldLength, fieldWidth);
+  const opponentMarkers = makeMarkers(opponents, 'O', 'opponent', fieldLength, fieldWidth);
+  const obstacleMarkers = makeMarkers(obstacles, 'X', 'obstacle', fieldLength, fieldWidth);
   const fieldLineSegments = makeFieldLineSegments(fieldLines, fieldLength, fieldWidth);
   const showTeammates = teammateMarkers.length > 0 || teammateBallMarkers.length > 0;
+
+  // 本机位姿 (带朝向) —— 之前没画, 验证时看不到"自己在哪/朝哪"
+  const selfRaw = status?.pose?.field;
+  const self = mapPoint(readAnyPoint(selfRaw), fieldLength, fieldWidth);
+  const selfTheta = isRecord(selfRaw) && isFiniteNumber(selfRaw.theta) ? selfRaw.theta : null;
+
+  // 球速矢量 (验证球路预测方向) —— 从球沿速度方向画一条短线 (0.6s 提前量)
+  const velocity = status?.prediction?.velocity;
+  let velocitySeg: FieldSegment | null = null;
+  if (ball && isRecord(velocity) && isFiniteNumber(velocity.x) && isFiniteNumber(velocity.y)) {
+    const speed = Math.hypot(velocity.x, velocity.y);
+    if (speed > 0.15) {
+      const end = mapPoint({ x: ball.raw.x + velocity.x * 0.6, y: ball.raw.y + velocity.y * 0.6 }, fieldLength, fieldWidth);
+      if (end) velocitySeg = { key: 'ball-velocity', className: 'velocityVector', start: ball, end, title: `ball velocity ${speed.toFixed(2)} m/s` };
+    }
+  }
+
+  // 队友球共享: 从被采用的来源队友连一条线到球 (验证"共享信息"采用了谁)
+  const ballShare = status?.team?.ball_share;
+  let shareSeg: FieldSegment | null = null;
+  if (ball && ballShare?.active && ballShare?.reliable && ballShare?.source_player_id) {
+    const src = teammates.find((t) => Number(t.player_id) === Number(ballShare.source_player_id));
+    const srcPose = src ? mapPoint(readEntityPose(src), fieldLength, fieldWidth) : null;
+    if (srcPose) shareSeg = { key: 'share-source', className: 'shareLine', start: srcPose, end: ball, title: `shared ball from P${ballShare.source_player_id}` };
+  }
   const penaltyDepth = positiveNumber(status?.field?.penalty_area_length, PENALTY_DEPTH);
   const penaltyWidth = positiveNumber(status?.field?.penalty_area_width, PENALTY_WIDTH);
   const goalWidth = positiveNumber(status?.field?.goal_width, GOAL_WIDTH);
@@ -305,6 +334,8 @@ export default function FieldView({ snapshot }: FieldViewProps) {
       <div className="fieldLine goalBox leftGoal" />
       <div className="fieldLine goalBox rightGoal" />
       {fieldLineSegments.map(renderSegment)}
+      {shareSeg && renderSegment(shareSeg)}
+      {velocitySeg && renderSegment(velocitySeg)}
       {trajectory.map((point, index) => {
         const mapped = mapPoint(point, fieldLength, fieldWidth);
         if (!mapped) return null;
@@ -319,14 +350,31 @@ export default function FieldView({ snapshot }: FieldViewProps) {
       })}
       {teammateBallMarkers.map(renderMarker)}
       {goalpostMarkers.map(renderMarker)}
+      {obstacleMarkers.map(renderMarker)}
+      {opponentMarkers.map(renderMarker)}
       {teammateMarkers.map(renderMarker)}
       {ball && <span className="marker ball" style={markerStyle(ball)} title={`ball | ${pointText(ball.raw)}`}>B</span>}
       {predictedBall && <span className="marker predicted" style={markerStyle(predictedBall)} title={`predicted ball | ${pointText(predictedBall.raw)}`}>P</span>}
+      {self && (
+        <span
+          className="marker robot"
+          style={markerStyle(self)}
+          title={`self | ${pointText(self.raw)}${selfTheta != null ? ` | theta=${selfTheta.toFixed(2)}` : ''}`}
+        >
+          R
+          {selfTheta != null && <span className="heading" style={{ transform: `rotate(${-selfTheta}rad)` }} />}
+        </span>
+      )}
     </div>
     <div className="fieldLegend">
+      <span><b className="legendDot robotDot" />self</span>
       <span><b className="legendDot ballDot" />ball</span>
       <span><b className="legendDot predictedDot" />predicted</span>
+      {velocitySeg && <span><b className="legendLine velocityLegend" />ball vel</span>}
+      {shareSeg && <span><b className="legendLine shareLegend" />share src</span>}
       {showTeammates && <span><b className="legendDot teammateDot" />teammate</span>}
+      {opponentMarkers.length > 0 && <span><b className="legendDot opponentDot" />opponent</span>}
+      {obstacleMarkers.length > 0 && <span><b className="legendDot obstacleDot" />obstacle</span>}
       <span><b className="legendDot goalpostDot" />goalpost</span>
       <span><b className="legendLine" />line</span>
     </div>

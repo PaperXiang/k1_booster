@@ -83,8 +83,10 @@ public:
     NodeStatus tick() override;
 private:
     Brain *brain;
-    double lastDeltaDir; 
-    rclcpp::Time timeLastTick; 
+    double lastDeltaDir;
+    rclcpp::Time timeLastTick;
+    rclcpp::Time _adjustSince;      // adjust 连续开始的时刻 (防卡死计时)
+    bool _adjustActive = false;     // 当前是否处于连续 adjust 计时中
 };
 
 class NewDecide : public SyncActionNode

@@ -127,6 +127,13 @@ export type RobotSnapshot = {
       tm_ip?: string;
       send_id?: number;
       teammates?: FieldEntity[];
+      ball_share?: {
+        active?: boolean;
+        reliable?: boolean;
+        source_player_id?: number | null;
+        confidence?: number | null;
+        fresh?: boolean;
+      };
     };
     perception?: {
       robots?: FieldEntity[];

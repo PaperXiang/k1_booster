@@ -427,6 +427,35 @@ dd {
   color: #f7fbff;
 }
 
+/* Field 卡片占满整行并放大, 让球场视图更大更清楚 */
+.card.fieldCard {
+  grid-column: 1 / -1;
+}
+
+.fieldCard .field {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* 球速矢量 (黄, 实线) 与 队友球共享来源连线 (绿, 虚线) */
+.velocityVector {
+  border-top: 3px solid rgba(250, 204, 21, 0.95);
+  z-index: 5;
+}
+
+.shareLine {
+  border-top: 2px dashed rgba(52, 211, 153, 0.9);
+  z-index: 3;
+}
+
+.velocityLegend {
+  border-top: 3px solid #facc15;
+}
+
+.shareLegend {
+  border-top: 2px dashed #34d399;
+}
+
 @media (max-width: 720px) {
   main {
     padding: 14px;

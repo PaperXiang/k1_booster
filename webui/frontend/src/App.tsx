@@ -192,6 +192,7 @@ export default function App() {
       <div className="grid">
         <StatusCard title="Behavior">
           <div className="badges">
+            {badge(behavior.decision === 'find', 'Find')}
             {badge(Boolean(behavior.is_chase), 'Chase')}
             {badge(Boolean(behavior.is_adjust), 'Adjust')}
             {badge(Boolean(behavior.is_rl_visual_kick), 'RLVisionKick')}
@@ -247,7 +248,7 @@ export default function App() {
           </dl>
         </StatusCard>
 
-        <StatusCard title="Field">
+        <StatusCard title="Field" className="fieldCard">
           <FieldView snapshot={snapshot} />
           <dl className="compactDl fieldStats">
             <dt>Size</dt><dd>{fmt(field?.length)} x {fmt(field?.width)} m</dd>
@@ -258,11 +259,19 @@ export default function App() {
         </StatusCard>
 
         <StatusCard title="Team">
+          <div className="badges">
+            {badge(Boolean(behavior.tm_ball_pos_reliable), 'TM ball reliable')}
+            {badge(Boolean(team?.ball_share?.active), 'Share active')}
+            {badge(Boolean(team?.ball_share?.reliable), 'Share reliable')}
+            {badge(Boolean(team?.ball_share?.fresh), 'Share fresh')}
+          </div>
           <dl>
             <dt>Com</dt><dd>{fmt(team?.enable_com)}</dd>
             <dt>IP</dt><dd>{fmt(team?.tm_ip)}</dd>
             <dt>Send id</dt><dd>{fmt(team?.send_id, 0)}</dd>
             <dt>Teammates</dt><dd>{team?.teammates?.length ?? 0}</dd>
+            <dt>Share source</dt><dd>{team?.ball_share?.source_player_id ? `P${team.ball_share.source_player_id}` : '--'}</dd>
+            <dt>Share conf</dt><dd>{fmt(team?.ball_share?.confidence, 0)}</dd>
           </dl>
           {teammates.length > 0 && (
             <div className="entityList">

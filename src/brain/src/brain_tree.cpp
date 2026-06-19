@@ -1116,6 +1116,23 @@ NodeStatus StrikerDecide::tick() {
         color = 0xFFFF00FF;
     }
 
+    // 防卡死(借鉴八一队 demo): adjust(绕球对位)连续超过 adjust_timeout_secs 则强制退回 chase,
+    // 打破"原地绕球不前进"的死锁。默认 0.0 = 关闭, 行为完全不变。
+    double adjustTimeoutSecs = 0.0;
+    brain->get_parameter("strategy.adjust_timeout_secs", adjustTimeoutSecs);
+    if (adjustTimeoutSecs > 0.0 && newDecision == "adjust") {
+        if (!_adjustActive) {
+            _adjustActive = true;
+            _adjustSince = now;
+        } else if ((now - _adjustSince).seconds() > adjustTimeoutSecs) {
+            newDecision = "chase";   // 超时退回追球, 重新接近后再尝试对位
+            _adjustActive = false;   // 重置计时, 下次进 adjust 重新计
+            log("adjust timeout -> chase (anti-deadlock)");
+        }
+    } else {
+        _adjustActive = false;
+    }
+
     if (newDecision != "auto_visual_kick") {
         brain->data->tmImInVisualKick = false;
     }
