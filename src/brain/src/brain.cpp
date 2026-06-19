@@ -1220,6 +1220,8 @@ void Brain::handleCooperation() {
     auto cmd = data->tmReceivedCmd;
     if (cmd != 0) {
         log_(format("received cmd %d from teammate", cmd));
+        // 注: cmd==100(队友宣告控球)的接收逻辑存在, 但当前无任何发送方 —— lead/assist 实际只由 cost 排名驱动。
+        //     唯一被实际发送的协同指令是守门->前锋交接 (10+id)。此分支为已定义但未触发的协议路径。
         if (cmd == 100) { // 队友要控球
             data->tmImLead = false;
             tree->setEntry<bool>("is_lead", false);

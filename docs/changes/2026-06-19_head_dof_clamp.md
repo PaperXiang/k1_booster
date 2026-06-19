@@ -1,0 +1,31 @@
+# 变更报告: 头部自由度软件收口（P1-3）
+
+- 日期 / 作者：2026-06-19 / 与 PaperXiang 结对
+- 类型：修复 / 安全（头部限位，`brain_config.h` 默认值）
+- 默认是否生效：是（改了默认限位值）
+- 回退：`brain_config.h` 把值改回（yaw 1.1、删 down 夹）即可。
+
+## 1. 动机
+`moveHead`（`robot_client.cpp:49`）原来**只夹抬头方向**（`pitch = max(pitch, 0.2)`），低头方向完全不夹；yaw 软限 ±1.1(63°) 超 URDF ±1.0(57°)。找球扫描下俯 0.9~1.0(51~57°) 超官方低头极限(URDF 49°/说明书 43°)，靠固件/机械止挡兜底。隐患：顶限位伤舵机、头部到位角与"软件以为的角"不一致→污染测距/投影/定位、换固件不可移植。
+
+## 2. 改了什么（文件 + 一句话）
+| 文件:行 | 改动 |
+|---|---|
+| `brain_config.h:84-88` | `headYawLimit ±1.1 → ±1.0`(URDF)；新增 `headPitchLimitDown = 0.85`(≈49°) |
+| `robot_client.cpp:53` | `pitch = max(pitch, Up)` → `pitch = cap(pitch, Down, Up)` 两端都夹 [0.2, 0.85]；并修 `fabs(pitch > 2.0)` 笔误为 `fabs(pitch) > 2.0`（仅影响日志级别） |
+
+## 3. 对比原先
+- before：commanded yaw 可到 ±1.1、下俯无软件上限（命令 1.0，靠硬件截到 ~49°）。
+- after：commanded yaw ≤ ±1.0、下俯 ≤ 0.85。因硬件本就把超限指令截断到 ~极限，**实际头部到位角几乎不变**，但命令值现在与硬件一致、确定、可移植。
+
+## 4. 风险
+- 低：硬件原本就截断越限指令，故实际头姿变化极小（下俯从~49°→48.7°、yaw 从顶限~57°→57°）。
+- 唯一可感知影响：找球时头部水平扫描幅度 ±63°→±57°（由身体转动补足）、最大下俯略减。若发现**找不到脚边很近的球**，把 `headPitchLimitDown` 调大（≤1.0）即可。
+- 我加的 `CamLissajousScan`(yaw_amp=0.9) 不受 1.0 夹影响；受影响的是 `CamFindBall/CamFastScan` 的 ±1.1 排（被夹到 1.0）。
+
+## 5. 如何验证
+- 离线：`colcon build --packages-select brain`；起树不崩。
+- 真机：找球/起身时观察头部不再"顶到底"卡顿；近距/远距测距是否更稳（WebUI ball range 抖动）。漏近球→调大 down 限位重测。
+
+## 6. 关联
+- 来源：`docs/ball_search_and_head_motion_analysis_2026_06_18.md` §6/§7。

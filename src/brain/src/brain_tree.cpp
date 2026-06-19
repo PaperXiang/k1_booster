@@ -76,6 +76,7 @@ void BrainTree::init()
     REGISTER_BUILDER(RLVisionKick)
     REGISTER_BUILDER(Intercept)
 
+    // ⚠ RoleSwitchIfNeeded 已注册但未被任何行为树引用; 真正生效的角色切换在 brain.cpp handleCooperation。冗余/历史遗留。
     REGISTER_BUILDER(RoleSwitchIfNeeded)
 
     REGISTER_BUILDER(Assist)
@@ -1104,6 +1105,8 @@ NodeStatus StrikerDecide::tick() {
         else { // kickType == kick
             double threatThreshold;
             brain->get_parameter("strategy.shoot.threat_threshold", threatThreshold);
+            // ⚠ 死分支: threatLevel() 恒 >=0 而 threat_threshold 默认 -2.0, 故永不产生 "safe_shoot";
+            // 且子树未给 "safe_shoot" 配动作节点 —— 若日后调高 threat_threshold, 此处会变成"无动作"。需补节点或删除。
             if (threatLevel < threatThreshold) newDecision = "safe_shoot";
             else newDecision = "kick";
         }        
@@ -1171,6 +1174,8 @@ NodeStatus GoalieDecide::tick()
     double ballRange = brain->data->ball.range;
     double ballYaw = brain->data->ball.yawToRobot;
 
+    // ⚠ enable_auto_visual_defend 控制的"守门员视觉扑救"分支体已被删空, 不设置 decision; 默认 false 故不进入。
+    //   切勿置 true —— 会进入空分支并沿用上一帧 decision。开源版守门员不含视觉扑救。
     bool enableAutoVisualKick;
     brain->get_parameter("strategy.enable_auto_visual_defend", enableAutoVisualKick);
 
@@ -2224,7 +2229,7 @@ bool SelfLocateLocal::_doubleX() {
 
     // 观察到的球场中心点的坐标
     double xc = (p0.posToField.x + p1.posToField.x) / 2.0;
-    double yc = (p1.posToField.y + p1.posToField.y) / 2.0;
+    double yc = (p0.posToField.y + p1.posToField.y) / 2.0;
 
     double maxDrift = 2.0;
     if (norm(xc, yc) > maxDrift) {
@@ -2549,7 +2554,7 @@ NodeStatus SelfLocate2X::tick()
 
     // 理论与实际的差值
     double dx = - (p0.posToField.x + p1.posToField.x) / 2.0;
-    double dy = - (p1.posToField.y + p1.posToField.y) / 2.0;
+    double dy = - (p0.posToField.y + p1.posToField.y) / 2.0;
     double drift = norm(dx, dy);
 
     if (drift > maxDrift) { // 修正量过大
@@ -2739,7 +2744,7 @@ NodeStatus SelfLocateLT::tick()
         
         if (t.range > maxDist) continue; // 太远
 
-        for (int j = i + 1; j < lMarkers.size(); j++) {
+        for (int j = 0; j < lMarkers.size(); j++) {
             l = lMarkers[j];
 
             if (l.range > maxDist) continue;
@@ -2857,7 +2862,7 @@ NodeStatus SelfLocatePT::tick()
         p = posts[i];
         if (p.range > maxDist) continue;
 
-        for (int j = i + 1; j < tMarkers.size(); j++) {
+        for (int j = 0; j < tMarkers.size(); j++) {
             t = tMarkers[j];
             if (t.range > maxDist) continue;
             if (

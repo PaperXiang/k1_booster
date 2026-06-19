@@ -30,7 +30,7 @@ vector<FieldMarker> BrainData::getMarkersForLocator()
         auto y = markings[i].posToRobot.y;
         auto confidence = markings[i].confidence;
 
-        char markerType;
+        char markerType = '\0';
         if (label == "LCross")
             markerType = 'L';
         else if (label == "TCross")
@@ -40,6 +40,7 @@ vector<FieldMarker> BrainData::getMarkersForLocator()
         else if (label == "PenaltyPoint")
             markerType = 'P';
 
+        if (markerType == '\0') continue; // 未知类型不入定位器, 避免未初始化的 markerType 进入匹配
         res.push_back(FieldMarker{markerType, x, y, confidence});
     }
     return res;
