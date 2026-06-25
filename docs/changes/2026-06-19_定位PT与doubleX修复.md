@@ -1,9 +1,9 @@
-# 变更报告: 修复定位历史 bug — SelfLocatePT 几何 + _doubleX 方向判据
+﻿# 变更报告: 修复定位历史 bug — SelfLocatePT 几何 + _doubleX 方向判据
 
 - 日期 / 作者：2026-06-19 / 与 PaperXiang 结对
 - 类型：修复（定位几何校正器）
 - 默认是否生效：**两者当前均休眠**。`SelfLocatePT` 几何 bug 已修，但**为稳妥已在 `subtree_locate.xml` 注释回休眠**（验证后取消注释即启用）；`_doubleX` 所属 `SelfLocateLocal` 不在级联，亦休眠（代码已正确）。
-- 来源：本会话 P1/P2-1 审核 `docs/2026-06-19_P1_P2-1_审核.md` §6 发现的历史 bug（非本会话引入）
+- 来源：本会话 P1/P2-1 审核 `docs/2026-06-19_P1_P2_1_审核报告.md` §6 发现的历史 bug（非本会话引入）
 
 > **稳妥决定（2026-06-19）**：`SelfLocatePT` 修复后本会让它在级联中生效，但因未实机验证，已**注释掉 `subtree_locate.xml` 中该行**让它回到原本的休眠态（零损失）。比赛默认不跑它；仿真验证 `/locate/pt/success` 合理后，取消注释即可启用。下文 §3「风险」中"由休眠转生效"的描述，仅在你取消注释启用后才适用。
 
@@ -38,5 +38,5 @@
 - 为何不顺便把 `SelfLocateLocal` 加入级联：那是"启用新校正器"的独立决定，超出"修 bug"范围；`_doubleX` 修对即可，是否启用 SelfLocateLocal 留给后续评估。
 
 ## 6. 关联
-- 审核来源：`docs/2026-06-19_P1_P2-1_审核.md` §6。
+- 审核来源：`docs/2026-06-19_P1_P2_1_审核报告.md` §6。
 - 与 P1-1（`docs/changes/2026-06-19_localization_bugfixes.md`）区别：P1-1 修的是中点 `(p0+p1)/2`、循环 `j=0`、markerType 初始化（使配对/计算正确）；**本次修的是更深的几何判据/地图坐标 bug**（使 PT/_doubleX 从"永不命中"变为"能命中"）。两者叠加，PT 与 _doubleX 的逻辑才完整正确。
