@@ -1,0 +1,13 @@
+---
+description: Automatically push completed local git sync work
+alwaysApply: true
+---
+
+# Git Sync Follow-up
+
+When the user asks to sync, merge, or switch branches and local commits are created or a local branch becomes ahead of its tracked remote:
+
+- Push the relevant branch to its remote after verifying the local operation succeeded.
+- Do not leave a branch ahead of its remote unless the user explicitly says not to push.
+- Still avoid force-push or other destructive git actions unless explicitly requested.
+- Report the final branch, remote tracking status, and whether anything remains uncommitted.
