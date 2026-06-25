@@ -1,6 +1,6 @@
-﻿# 变更报告 (Change Reports)
+# 变更报告 (Change Reports)
 
-> 约定：**每次代码更改都在此目录建一份报告**，文件名 `YYYY-MM-DD_<slug>.md`。
+> 约定：**每次代码更改都在此目录建一份报告**，文件名 `YYYY-MM-DD_<中文主题>.md`。
 > 目的：在"只有 1h 赛前测试、改动多又不敢确认"的现状下，让每个改动都能被**独立验证、独立回退**，不污染原代码。
 
 ## 模板（复制下面这段）
@@ -27,17 +27,18 @@
 
 | 日期 | 报告 | 一句话 |
 |---|---|---|
-| 2026-06-19 | [chase_arc_walk](2026-06-19_chase_arc_walk.md) | 让比赛实际用的 `Chase` 节点走弧线而非原地转（端口 `arc_walk` 门控） |
-| 2026-06-19 | [webui_validation_telemetry](2026-06-19_webui_validation_telemetry.md) | WebUI 暴露队友球共享融合结果 + 找球/共享徽标，便于验证 |
-| 2026-06-19 | [fieldview_viz](2026-06-19_fieldview_viz.md) | FieldView 加本机/对手/球速矢量/共享来源连线，并放大球场视图 |
-| 2026-06-19 | [adjust_timeout](2026-06-19_adjust_timeout.md) | Adjust 绕球死锁超时→chase（借鉴八一队，默认关） |
-| 2026-06-19 | [external_sources_survey](2026-06-19_external_sources_survey.md) | 八一 demo + B-Human 思路调研：取所需、列提案 |
-| 2026-06-19 | [localization_bugfixes](2026-06-19_localization_bugfixes.md) | P1-1：修定位 5 处笔误(2X/_doubleX 中点、LT/PT 跨数组循环、markerType 未初始化) |
-| 2026-06-19 | [head_dof_clamp](2026-06-19_head_dof_clamp.md) | P1-3：头部限位按官方 DOF 收口(yaw±1.0、低头≤0.85、两端夹) |
-| 2026-06-19 | [dead_code_annotations](2026-06-19_dead_code_annotations.md) | P1-4：标注 safe_shoot/RoleSwitch/visual_defend/cmd==100 等死分支(纯注释) |
-| 2026-06-19 | [selflocate_circle](2026-06-19_selflocate_circle.md) | P2-1：实现全位姿(含朝向)校正 SelfLocateCircle(中圈+中线)，默认不挂级联 |
-| 2026-06-19 | [localization_pt_doublex_fix](2026-06-19_localization_pt_doublex_fix.md) | 修历史 bug：SelfLocatePT 几何(由休眠转生效)+ _doubleX 方向判据(仍休眠) |
+| 2026-06-18 | [总变更记录](2026-06-18_总变更记录.md) | 0618 当天追球、找球、队友球共享、拦截分包、启动崩溃修复等完整变更记录 |
+| 2026-06-18+ | [每日更改汇总](2026-06-18_至今每日更改汇总.md) | 从 0618 起按日期整理具体改动、影响范围、风险和测试重点 |
+| 2026-06-18+ | [总汇总与测试方案](2026-06-18_至今总汇总与测试方案.md) | 跨日总览运动、定位、协同、工程清理改动，并给出分层测试与 go/no-go 清单 |
+| 2026-06-19 | [Chase弧线追球](2026-06-19_Chase弧线追球.md) | 让比赛实际用的 `Chase` 节点走弧线而非原地转（端口 `arc_walk` 门控） |
+| 2026-06-19 | [WebUI验证遥测](2026-06-19_WebUI验证遥测.md) | WebUI 暴露队友球共享融合结果 + 找球/共享徽标，便于验证 |
+| 2026-06-19 | [FieldView可视化](2026-06-19_FieldView可视化.md) | FieldView 加本机/对手/球速矢量/共享来源连线，并放大球场视图 |
+| 2026-06-19 | [Adjust绕球超时优化](2026-06-19_Adjust绕球超时优化.md) | Adjust 绕球死锁超时→chase（借鉴八一队，默认关） |
+| 2026-06-19 | [外部资料调研](2026-06-19_外部资料调研.md) | 八一 demo + B-Human 思路调研：取所需、列提案 |
+| 2026-06-19 | [定位笔误修复](2026-06-19_定位笔误修复.md) | P1-1：修定位 5 处笔误(2X/_doubleX 中点、LT/PT 跨数组循环、markerType 未初始化) |
+| 2026-06-19 | [头部自由度限制](2026-06-19_头部自由度限制.md) | P1-3：头部限位按官方 DOF 收口(yaw±1.0、低头≤0.85、两端夹) |
+| 2026-06-19 | [死代码标注](2026-06-19_死代码标注.md) | P1-4：标注 safe_shoot/RoleSwitch/visual_defend/cmd==100 等死分支(纯注释) |
+| 2026-06-19 | [中圈定位校正](2026-06-19_中圈定位校正.md) | P2-1：实现全位姿(含朝向)校正 SelfLocateCircle(中圈+中线)，默认不挂级联 |
+| 2026-06-19 | [定位PT与doubleX修复](2026-06-19_定位PT与doubleX修复.md) | 修历史 bug：SelfLocatePT 几何(由休眠转生效)+ _doubleX 方向判据(仍休眠) |
 
-> 0618 当天的其余改动（队友球共享包、intercept 分离、定位崩溃修复、扑救删除）见
-> `docs/2026-06-18_总变更记录.md`，本约定从 2026-06-19 起执行。
-> 非"更改"的代码评审（如球路预测核对）放在 `docs/` 下，不进本目录。
+> 非"更改"的代码评审（如球路预测核对）放在 `docs/` 下，不进本目录；跨日汇总和测试方案统一放在本目录，便于赛前按日期追踪。
