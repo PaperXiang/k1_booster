@@ -80,10 +80,12 @@ public:
     Eigen::Matrix4d camToHead;
 
 
-    // 头转动软限位
-    double headYawLimitLeft = 1.1;
-    double headYawLimitRight = -1.1;
-    double headPitchLimitUp = 0.2; // 这个角度足以看到全场, 更高更远的信息全是干扰，k1 realsense 0.3 to 0.2
+    // 头转动软限位 (按官方 DOF 收口: URDF yaw ±1.0≈57°, 低头 ~0.85≈49°)
+    // 之前 yaw ±1.1(63°)、低头方向完全不夹, 越界靠固件/机械兜底 — 不可移植且顶限位伤舵机/污染投影
+    double headYawLimitLeft = 1.0;
+    double headYawLimitRight = -1.0;
+    double headPitchLimitUp = 0.2; // 抬头方向(最小 pitch); 这个角度足以看到全场, 更高更远的信息全是干扰, k1 realsense 0.3 to 0.2
+    double headPitchLimitDown = 0.85; // 低头方向(最大 pitch ≈49°); 新增, 防下俯越过官方极限. 若找球漏近球可调大(≤1.0)
 
     // 速度上限
     double vxLimit = 1.2;

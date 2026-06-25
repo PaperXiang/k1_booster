@@ -58,6 +58,7 @@ void BrainTree::init()
     REGISTER_BUILDER(SelfLocateLT)
     REGISTER_BUILDER(SelfLocatePT)
     REGISTER_BUILDER(SelfLocateBorder)
+    REGISTER_BUILDER(SelfLocateCircle) // 全位姿(含朝向)校正; 默认未接入 subtree_locate.xml
 
     REGISTER_BUILDER(SetVelocity)
     REGISTER_BUILDER(RobocupWalk)
@@ -76,6 +77,7 @@ void BrainTree::init()
     REGISTER_BUILDER(RLVisionKick)
     REGISTER_BUILDER(Intercept)
 
+    // ⚠ RoleSwitchIfNeeded 已注册但未被任何行为树引用; 真正生效的角色切换在 brain.cpp handleCooperation。冗余/历史遗留。
     REGISTER_BUILDER(RoleSwitchIfNeeded)
 
     REGISTER_BUILDER(Assist)
@@ -1104,6 +1106,8 @@ NodeStatus StrikerDecide::tick() {
         else { // kickType == kick
             double threatThreshold;
             brain->get_parameter("strategy.shoot.threat_threshold", threatThreshold);
+            // ⚠ 死分支: threatLevel() 恒 >=0 而 threat_threshold 默认 -2.0, 故永不产生 "safe_shoot";
+            // 且子树未给 "safe_shoot" 配动作节点 —— 若日后调高 threat_threshold, 此处会变成"无动作"。需补节点或删除。
             if (threatLevel < threatThreshold) newDecision = "safe_shoot";
             else newDecision = "kick";
         }        
@@ -1171,6 +1175,8 @@ NodeStatus GoalieDecide::tick()
     double ballRange = brain->data->ball.range;
     double ballYaw = brain->data->ball.yawToRobot;
 
+    // ⚠ enable_auto_visual_defend 控制的"守门员视觉扑救"分支体已被删空, 不设置 decision; 默认 false 故不进入。
+    //   切勿置 true —— 会进入空分支并沿用上一帧 decision。开源版守门员不含视觉扑救。
     bool enableAutoVisualKick;
     brain->get_parameter("strategy.enable_auto_visual_defend", enableAutoVisualKick);
 
@@ -2208,8 +2214,8 @@ bool SelfLocateLocal::_doubleX() {
     auto p0 = points[0]; auto p1 = points[1];
 
     if (
-        fabs(p0.posToField.y - p1.posToField.y) > 0.3 // 方向不对
-        || fabs(fabs(p0.posToField.y - p1.posToField.y) - brain->config->fieldDimensions.circleRadius * 2.0) > 0.5 // 距离不对
+        fabs(p0.posToField.x - p1.posToField.x) > 0.3 // 方向不对(两 X 应在中线上, x 接近; 原误写为 .y)
+        || fabs(fabs(p0.posToField.y - p1.posToField.y) - brain->config->fieldDimensions.circleRadius * 2.0) > 0.5 // 距离不对(y 间距≈中圈直径)
         || p0.range > 5.0 || p1.range > 5.0 // 太远
     ) {
         brain->log->log("SelfLocateLocal/DoubleX",
@@ -2224,7 +2230,7 @@ bool SelfLocateLocal::_doubleX() {
 
     // 观察到的球场中心点的坐标
     double xc = (p0.posToField.x + p1.posToField.x) / 2.0;
-    double yc = (p1.posToField.y + p1.posToField.y) / 2.0;
+    double yc = (p0.posToField.y + p1.posToField.y) / 2.0;
 
     double maxDrift = 2.0;
     if (norm(xc, yc) > maxDrift) {
@@ -2549,7 +2555,7 @@ NodeStatus SelfLocate2X::tick()
 
     // 理论与实际的差值
     double dx = - (p0.posToField.x + p1.posToField.x) / 2.0;
-    double dy = - (p1.posToField.y + p1.posToField.y) / 2.0;
+    double dy = - (p0.posToField.y + p1.posToField.y) / 2.0;
     double drift = norm(dx, dy);
 
     if (drift > maxDrift) { // 修正量过大
@@ -2588,6 +2594,95 @@ NodeStatus SelfLocate2X::tick()
             .with_labels({"1p"})
     );
     brain->calibrateOdom(hypoPose.x, hypoPose.y, hypoPose.theta);
+    brain->data->lastSuccessfulLocalizeTime = brain->get_clock()->now();
+    return NodeStatus::SUCCESS;
+}
+
+NodeStatus SelfLocateCircle::tick()
+{
+    double interval = getInput<double>("msecs_interval").value();
+    double maxDist = getInput<double>("max_dist").value();
+    if (brain->client->isStandingStill(2000)) maxDist *= 1.5; // 静态下允许更远
+    double maxDrift = getInput<double>("max_drift").value();
+    double maxThetaDrift = getInput<double>("max_theta_drift").value();
+
+    auto log = brain->log;
+    log->setTimeNow();
+    string logPathS = "/locate/circle/success";
+    string logPathF = "/locate/circle/fail";
+
+    auto msecs = brain->msecsSince(brain->data->lastSuccessfulLocalizeTime);
+    if (msecs < interval) {
+        log->log(logPathF, rerun::TextLog(format("Failed, msecs(%.1f) < interval(%.1f)", msecs, interval)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 需要恰好 2 个 XCross (中圈与中线的两个交点)
+    auto points = brain->data->getMarkingsByType({"XCross"});
+    if (points.size() != 2) {
+        log->log(logPathF, rerun::TextLog(format("Failed, XCross cnt(%d) != 2", points.size())));
+        return NodeStatus::SUCCESS;
+    }
+    auto p0 = points[0]; auto p1 = points[1];
+    if (p0.range > maxDist || p1.range > maxDist) {
+        log->log(logPathF, rerun::TextLog(format("Failed, range p0(%.2f)/p1(%.2f) > maxDist(%.2f)", p0.range, p1.range, maxDist)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 几何自检(机器人系, 与当前位姿无关): 两交点间距 ≈ 中圈直径
+    double dxr = p1.posToRobot.x - p0.posToRobot.x;
+    double dyr = p1.posToRobot.y - p0.posToRobot.y;
+    double sep = norm(dxr, dyr);
+    double mapSep = brain->config->fieldDimensions.circleRadius * 2.0;
+    if (fabs(sep - mapSep) > 0.5) {
+        log->log(logPathF, rerun::TextLog(format("Failed, sep(%.2f) far from circle diameter(%.2f)", sep, mapSep)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 朝向: 两交点连线在机器人系的方向 beta; 中线在场地系沿 ±y(方向 ±pi/2)
+    // => theta = ±pi/2 - beta, 取与当前朝向最接近者 (消 180° 二义性)
+    double beta = atan2(dyr, dxr);
+    double thetaA = toPInPI(M_PI / 2.0 - beta);
+    double thetaB = toPInPI(thetaA + M_PI);
+    double cur = brain->data->robotPoseToField.theta;
+    double theta = fabs(toPInPI(thetaA - cur)) <= fabs(toPInPI(thetaB - cur)) ? thetaA : thetaB;
+
+    double thetaDrift = fabs(toPInPI(theta - cur));
+    if (thetaDrift > maxThetaDrift) { // 朝向修正过大(含 pi 翻转) -> 拒绝, 交由 SET/入场全局定位修复
+        log->log(logPathF, rerun::TextLog(format("Failed, theta drift(%.2f) > max(%.2f)", thetaDrift, maxThetaDrift)));
+        return NodeStatus::SUCCESS;
+    }
+
+    // 位置: 场地中心在 (0,0); 机器人系中圈中点 M_r; 机器人场地位姿 t = -R(theta)·M_r
+    double mrx = (p0.posToRobot.x + p1.posToRobot.x) / 2.0;
+    double mry = (p0.posToRobot.y + p1.posToRobot.y) / 2.0;
+    double ct = cos(theta), st = sin(theta);
+    double x = - (mrx * ct - mry * st);
+    double y = - (mrx * st + mry * ct);
+
+    double drift = norm(x - brain->data->robotPoseToField.x, y - brain->data->robotPoseToField.y);
+    if (drift > maxDrift) {
+        log->log(logPathF, rerun::TextLog(format("Failed, pos drift(%.2f) > maxDrift(%.2f)", drift, maxDrift)));
+        return NodeStatus::SUCCESS;
+    }
+
+    Pose2D hypoPose = brain->data->robotPoseToField;
+    hypoPose.x = x;
+    hypoPose.y = y;
+    hypoPose.theta = theta;
+
+    // 全地标一致性校验 (误检过滤, 对应 B-Human 的 false-positive 过滤)
+    auto allMarkers = brain->data->getMarkersForLocator();
+    if (allMarkers.size() > 0) {
+        double residual = brain->locator->residual(allMarkers, hypoPose) / allMarkers.size();
+        if (residual > brain->locator->residualTolerance) {
+            log->log(logPathF, rerun::TextLog(format("Failed, residual(%.2f) > tolerance(%.2f)", residual, brain->locator->residualTolerance)));
+            return NodeStatus::SUCCESS;
+        }
+    }
+
+    log->log(logPathS, rerun::TextLog(format("Success. posDrift=%.2f thetaDrift=%.2f", drift, thetaDrift)));
+    brain->calibrateOdom(hypoPose.x, hypoPose.y, hypoPose.theta); // ★含朝向地重置 odom->field
     brain->data->lastSuccessfulLocalizeTime = brain->get_clock()->now();
     return NodeStatus::SUCCESS;
 }
@@ -2739,7 +2834,7 @@ NodeStatus SelfLocateLT::tick()
         
         if (t.range > maxDist) continue; // 太远
 
-        for (int j = i + 1; j < lMarkers.size(); j++) {
+        for (int j = 0; j < lMarkers.size(); j++) {
             l = lMarkers[j];
 
             if (l.range > maxDist) continue;
@@ -2857,12 +2952,12 @@ NodeStatus SelfLocatePT::tick()
         p = posts[i];
         if (p.range > maxDist) continue;
 
-        for (int j = i + 1; j < tMarkers.size(); j++) {
+        for (int j = 0; j < tMarkers.size(); j++) {
             t = tMarkers[j];
             if (t.range > maxDist) continue;
             if (
                 fabs(t.posToField.x - p.posToField.x) < 0.5
-                && fabs(fabs(t.posToField.x - p.posToField.x) - fabs(fd.goalAreaWidth - fd.goalWidth) / 2.0) < 0.3
+                && fabs(fabs(t.posToField.y - p.posToField.y) - fabs(fd.goalAreaWidth - fd.goalWidth) / 2.0) < 0.3 // 原误写为 .x: 球门柱与球门区 T 的间隔在 y 方向
             ) {
                 found = true;
                 break;
@@ -2890,7 +2985,7 @@ NodeStatus SelfLocatePT::tick()
     for (auto half: halfs) {
         for (auto side: sides) {
             pos_m = {
-                half * (fd.length), 
+                half * (fd.length / 2.0), // 球门区 T 在底线上, x = ±length/2 (原误写为 fd.length, 落到场外致永不匹配)
                 side * (fd.goalAreaWidth / 2.0)
             };
             double dist = norm(pos_o.x - pos_m.x, pos_o.y - pos_m.y);

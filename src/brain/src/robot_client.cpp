@@ -50,10 +50,10 @@ int RobotClient::moveHead(double pitch, double yaw)
 {
     // 软限位
     yaw = cap(yaw, brain->config->headYawLimitLeft, brain->config->headYawLimitRight);
-    pitch = max(pitch, brain->config->headPitchLimitUp);
+    pitch = cap(pitch, brain->config->headPitchLimitDown, brain->config->headPitchLimitUp); // 两端都夹: [抬头 0.2, 低头 0.85]
 
     brain->log->setTimeNow();
-    auto level = (fabs(pitch > 2.0) || fabs(yaw > 2.0)) ? rerun::TextLogLevel::Error : rerun::TextLogLevel::Info;
+    auto level = (fabs(pitch) > 2.0 || fabs(yaw) > 2.0) ? rerun::TextLogLevel::Error : rerun::TextLogLevel::Info;
     brain->log->log("debug/move_head", rerun::TextLog(format("pitch: %.1f, yaw: %.1f", pitch, yaw)).with_level(level));
 
     return call(booster_interface::CreateRotateHeadMsg(pitch, yaw));
