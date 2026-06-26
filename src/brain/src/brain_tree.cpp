@@ -1175,19 +1175,6 @@ NodeStatus GoalieDecide::tick()
     double ballRange = brain->data->ball.range;
     double ballYaw = brain->data->ball.yawToRobot;
 
-    // ⚠ enable_auto_visual_defend 控制的"守门员视觉扑救"分支体已被删空, 不设置 decision; 默认 false 故不进入。
-    //   切勿置 true —— 会进入空分支并沿用上一帧 decision。开源版守门员不含视觉扑救。
-    bool enableAutoVisualKick;
-    brain->get_parameter("strategy.enable_auto_visual_defend", enableAutoVisualKick);
-
-    // ================= [修复] 初始化变量，防止编译警告/错误 =================
-    double autoVisualKickEnableDistMin = 0.5;
-    double autoVisualKickEnableDistMax = 2.0;
-    double autoVisualKickEnableAngle = 0.5;
-    double autoVisualKickObstacleDistThreshold = 1.0;
-    double autoVisualKickObstacleAngleThreshold = 0.5;
-    // ====================================================================
-
     string newDecision;
     auto color = 0xFFFFFFFF; // for log
     bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
@@ -1200,16 +1187,6 @@ NodeStatus GoalieDecide::tick()
     else if (brain->data->ball.posToField.x > 0 - static_cast<double>(lastDecision == "retreat"))
     {
         newDecision = "retreat";
-        color = 0xFF00FFFF;
-    }
-    else if (
-                enableAutoVisualKick &&
-                brain->data->ball.range < autoVisualKickEnableDistMax &&
-                brain->data->ball.range > autoVisualKickEnableDistMin &&
-                fabs(brain->data->ball.yawToRobot) < autoVisualKickEnableAngle / 2 &&
-                brain->isFrontRangeClear(-autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleDistThreshold, 0.035)
-            ) {
-    // 自动视觉踢球分支已删除
         color = 0xFF00FFFF;
     }
     else if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))

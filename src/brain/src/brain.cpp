@@ -297,7 +297,6 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("strategy.rlvk_chase_enable_dist_min", 1.0);
     declare_parameter<double>("strategy.rlvk_chase_enable_dist_max", 6.0);
     declare_parameter<double>("strategy.rlvk_chase_enable_angle", 0.8);
-    declare_parameter<bool>("strategy.enable_auto_visual_defend", false);
 
     declare_parameter<bool>("strategy.power_shoot.enable", false);
     declare_parameter<bool>("strategy.power_shoot.use_for_kickoff", false);

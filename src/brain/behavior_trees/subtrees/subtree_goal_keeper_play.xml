@@ -28,7 +28,7 @@
                   <!-- <StepOnSpot /> -->
                </ReactiveSequence>
                <Sequence _while="!wait_for_opponent_kickoff" name="正常比赛">
-                  <Sequence _while="goalie_mode=='attack'">
+                  <Sequence>  <!-- 守门员只有 attack 模式; guard 分支已删除 -->
                      <!-- <CamTrackBall /> -->
                      <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                      <GoalieDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
@@ -46,12 +46,6 @@
                      </Sequence>
                      <!-- RLVisionKick node removed in open-source version -->
                   </Sequence>
-                  <ReactiveSequence _while="goalie_mode == 'guard'">
-                     <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
-                     <GoToReadyPosition _while="!ball_location_known" vx_limit="0.7" />
-                     <!-- 已移除守门员扑救 Intercept: guard 分支不可达(goalie_mode 恒为 attack)且 ball_will_breach 从未被写入, 属死代码。 -->
-                     <GoToGoalBlockingPosition _while="ball_location_known" theta_tolerance="0.2" />
-                  </ReactiveSequence>
 
                </Sequence>
             </ReactiveSequence>
