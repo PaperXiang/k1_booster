@@ -3240,7 +3240,14 @@ NodeStatus SelfLocateLine::tick()
     double dist0;
     double dist1;
     std::vector<std::pair<double, FieldLine>> lineWithDist;
+    // 迁回 1.5 的输入过滤: 拒绝低置信度/过期/过短的线, 防线段误检导致错误纠偏 (1.6 曾删掉这三道闸)
+    const double minLineConfidence = 0.7;
+    const double minLineLength = 0.5;
+    const double maxLineAgeMsec = 700.0;
     for (const auto& line : fieldLines) {
+        if (line.confidence < minLineConfidence) continue;          // 低置信度线丢弃
+        if (brain->msecsSince(line.timePoint) > maxLineAgeMsec) continue; // 过期(>700ms)线丢弃
+        if (lineLength(line.posToField) < minLineLength) continue;  // 过短(<0.5m)线丢弃
         dist0 = norm(
             line.posToField.x0 - brain->data->robotPoseToField.x,
             line.posToField.y0 - brain->data->robotPoseToField.y

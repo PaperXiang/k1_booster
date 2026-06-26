@@ -15,8 +15,11 @@
         <!-- <SelfLocatePT msecs_interval="300" max_dist="5.0" max_drift="3.5" /> -->
         <SelfLocateLT msecs_interval="300" max_dist="5.0" max_drift="3.5" />
         <SelfLocate2X msecs_interval="300" max_dist="5.0" max_drift="3.5" />
-        <SelfLocateBorder msecs_interval="300" max_dist="5.0" max_drift="3.5"/>
-        <!-- <SelfLocateLine msecs_interval="300" max_dist="3.0" max_drift="1.5"/> -->
+        <!-- SelfLocateBorder 恢复 1.5 保守参数: max_drift 3.5->1.0(防边界误检大跳)、加 validate、降频 800ms -->
+        <SelfLocateBorder msecs_interval="800" max_dist="4.0" max_drift="1.0" validate="true"/>
+        <!-- SelfLocateLine 迁回 1.5: 已补回置信度/时效/长度三道过滤 + 1.5 保守参数(1500ms, drift<=1.0, validate)。
+             ★本批最高风险项: 线易误检。先仿真/回放看 /locate/line/success 合理再信; 不稳就把下一行重新注释即回退。 -->
+        <SelfLocateLine msecs_interval="1500" max_dist="5.0" max_drift="1.0" validate="true"/>
      </Sequence>
   </BehaviorTree>
 </root>
