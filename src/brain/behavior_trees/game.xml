@@ -35,6 +35,9 @@
                 <Speak text="auto" />
                 <SubTree ID="AutoGetUpAndLocate" _autoremap="true" />
                 <ReactiveSequence _while="gc_is_under_penalty" name="当前处于罚时状态, 或替补状态">
+                    <!-- DEBUG_VOICE_START -->
+                    <Speak text="罚时停止" />
+                    <!-- DEBUG_VOICE_END -->
                     <SetVelocity />
                     <CamScanField _while="!odom_calibrated" />
                     <SubTree ID="CamFindAndTrackBall" _autoremap="true" _while="odom_calibrated" />
@@ -43,6 +46,9 @@
 
                 <ReactiveSequence _while="!gc_is_under_penalty" name="没有罚时, 正常比赛">
                     <ReactiveSequence _while="gc_game_sub_state_type=='TIMEOUT'" name="比赛暂停. 暂停时, game state 必为 INITIAL">
+                        <!-- DEBUG_VOICE_START -->
+                        <Speak text="比赛暂停" />
+                        <!-- DEBUG_VOICE_END -->
                         <SetVelocity />
                         <!-- <PrintMsg msg="Timeout. Calibrating..." /> -->
                         <SubTree ID="CamFindAndTrackBall" _autoremap="true" _while="odom_calibrated" />
@@ -56,6 +62,9 @@
                         </ReactiveSequence>
 
                         <ReactiveSequence _while="gc_game_state=='READY'" name="走到场内自己的起始位置">
+                            <!-- DEBUG_VOICE_START -->
+                            <Speak text="准备入场" />
+                            <!-- DEBUG_VOICE_END -->
                             <MoveHead pitch="0.35" yaw="0.0" />
                             <GoToReadyPosition  vx_limit="0.7" />
                             <SubTree ID="Locate" _autoremap="true" />
@@ -63,6 +72,9 @@
                         </ReactiveSequence>
 
                         <ReactiveSequence _while="gc_game_state=='SET'" name="站好等待比赛开始">
+                            <!-- DEBUG_VOICE_START -->
+                            <Speak text="站好等待" />
+                            <!-- DEBUG_VOICE_END -->
                             <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                             <SetVelocity />
                             <SubTree ID="Locate" _autoremap="true" />
@@ -70,6 +82,9 @@
                         </ReactiveSequence>
 
                         <ReactiveSequence _while="gc_game_state=='PLAY'" name="比赛">
+                            <!-- DEBUG_VOICE_START -->
+                            <Speak text="lets fucking go" />
+                            <!-- DEBUG_VOICE_END -->
                             <SubTree ID="StrikerPlay" _autoremap="true" _while="player_role == 'striker'" />
                             <SubTree ID="GoalKeeperPlay" _autoremap="true" _while="player_role == 'goal_keeper'" />
                         </ReactiveSequence>
