@@ -280,12 +280,10 @@ export default function FieldView({ snapshot }: FieldViewProps) {
   const goalposts = entityArray(perception?.goalposts);
   const fieldLines = entityArray(perception?.field_lines);
   const opponents = entityArray(perception?.opponents);
-  const obstacles = entityArray(perception?.obstacles);
   const teammateMarkers = makeMarkers(teammates, 'T', 'teammate', fieldLength, fieldWidth);
   const teammateBallMarkers = makeBallMarkers(teammates, fieldLength, fieldWidth);
   const goalpostMarkers = makeMarkers(goalposts, 'G', 'goalpost', fieldLength, fieldWidth);
   const opponentMarkers = makeMarkers(opponents, 'O', 'opponent', fieldLength, fieldWidth);
-  const obstacleMarkers = makeMarkers(obstacles, 'X', 'obstacle', fieldLength, fieldWidth);
   const fieldLineSegments = makeFieldLineSegments(fieldLines, fieldLength, fieldWidth);
   const showTeammates = teammateMarkers.length > 0 || teammateBallMarkers.length > 0;
 
@@ -350,7 +348,6 @@ export default function FieldView({ snapshot }: FieldViewProps) {
       })}
       {teammateBallMarkers.map(renderMarker)}
       {goalpostMarkers.map(renderMarker)}
-      {obstacleMarkers.map(renderMarker)}
       {opponentMarkers.map(renderMarker)}
       {teammateMarkers.map(renderMarker)}
       {ball && <span className="marker ball" style={markerStyle(ball)} title={`ball | ${pointText(ball.raw)}`}>B</span>}
@@ -374,7 +371,6 @@ export default function FieldView({ snapshot }: FieldViewProps) {
       {shareSeg && <span><b className="legendLine shareLegend" />share src</span>}
       {showTeammates && <span><b className="legendDot teammateDot" />teammate</span>}
       {opponentMarkers.length > 0 && <span><b className="legendDot opponentDot" />opponent</span>}
-      {obstacleMarkers.length > 0 && <span><b className="legendDot obstacleDot" />obstacle</span>}
       <span><b className="legendDot goalpostDot" />goalpost</span>
       <span><b className="legendLine" />line</span>
     </div>

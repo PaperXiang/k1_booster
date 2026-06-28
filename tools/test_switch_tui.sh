@@ -27,7 +27,7 @@ backup_all() {
   cp "${CONFIG_FILE}" "${dir}/config.yaml"
   cp "${STRIKER_XML}" "${dir}/subtree_striker_play.xml"
   cp "${GOALIE_XML}" "${dir}/subtree_goal_keeper_play.xml"
-  echo "Backup saved: ${dir}"
+  echo "已备份当前配置到: ${dir}"
 }
 
 run_py() {
@@ -45,7 +45,7 @@ config, striker_xml, goalie_xml = map(Path, sys.argv[1:4])
 def yaml_get(path, section, key):
     current = None
     pattern_section = re.compile(r"^    ([A-Za-z0-9_]+):\s*(?:#.*)?$")
-    pattern_key = re.compile(rf"^      {re.escape(key)}:\s*([^#\n]*?)(?:\s+#.*)?$")
+    pattern_key = re.compile(rf"^      {re.escape(key)}:\s*([^#\n]*?)(?:\s*#.*)?$")
     for line in path.read_text(encoding="utf-8").splitlines():
         m = pattern_section.match(line)
         if m:
@@ -63,17 +63,17 @@ def xml_arc(path):
     return m.group(1) if m else "<not found>"
 
 rows = [
-    ("striker arc_walk", xml_arc(striker_xml)),
-    ("goal_keeper arc_walk", xml_arc(goalie_xml)),
-    ("strategy.adjust_timeout_secs", yaml_get(config, "strategy", "adjust_timeout_secs")),
-    ("ball_prediction.enable", yaml_get(config, "ball_prediction", "enable")),
-    ("ball_prediction.use_for_chase", yaml_get(config, "ball_prediction", "use_for_chase")),
-    ("ball_prediction.predict_time", yaml_get(config, "ball_prediction", "predict_time")),
-    ("ball_prediction.lost_prediction_timeout", yaml_get(config, "ball_prediction", "lost_prediction_timeout")),
-    ("ball_prediction.disable_for_set_play_chase", yaml_get(config, "ball_prediction", "disable_for_set_play_chase")),
+    ("前锋 Chase 弧线追球 arc_walk", xml_arc(striker_xml)),
+    ("守门员 Chase 弧线追球 arc_walk", xml_arc(goalie_xml)),
+    ("Adjust 绕球超时秒数，0=关闭", yaml_get(config, "strategy", "adjust_timeout_secs")),
+    ("球路预测总开关 enable", yaml_get(config, "ball_prediction", "enable")),
+    ("球路预测是否接管追球 use_for_chase", yaml_get(config, "ball_prediction", "use_for_chase")),
+    ("球路预测提前量 predict_time", yaml_get(config, "ball_prediction", "predict_time")),
+    ("丢球预测保持时间 lost_timeout", yaml_get(config, "ball_prediction", "lost_prediction_timeout")),
+    ("定位球阶段禁用预测追球", yaml_get(config, "ball_prediction", "disable_for_set_play_chase")),
 ]
 
-print("\nCurrent test switches")
+print("\n当前测试开关状态")
 print("-" * 64)
 for name, value in rows:
     print(f"{name:<42} {value}")
@@ -110,16 +110,18 @@ for i, line in enumerate(lines):
         if m:
             prefix = m.group(1)
             suffix = m.group(3) or ""
+            if suffix.startswith("#"):
+                suffix = " " + suffix
             newline = m.group(4) or "\n"
             lines[i] = f"{prefix}{value}{suffix}{newline}"
             changed = True
             break
 
 if not changed:
-    raise SystemExit(f"ERROR: could not find {section}.{key} in {path}")
+    raise SystemExit(f"ERROR: 找不到配置项 {section}.{key}, 文件: {path}")
 
 path.write_text("".join(lines), encoding="utf-8")
-print(f"Updated {section}.{key} = {value}")
+print(f"已修改 {section}.{key} = {value}")
 PY
 }
 
@@ -156,10 +158,10 @@ for i, line in enumerate(lines):
         break
 
 if count != 1:
-    raise SystemExit(f"ERROR: expected exactly one active <Chase ...> in {path}, changed {count}")
+    raise SystemExit(f"ERROR: 没有找到唯一可修改的 <Chase ...>, 文件: {path}, 修改数量: {count}")
 
 path.write_text("".join(lines), encoding="utf-8")
-print(f"Updated {path.name}: arc_walk={value}")
+print(f"已修改 {path.name}: arc_walk={value}")
 PY
 }
 
@@ -205,13 +207,13 @@ for path in paths:
             break
 
     if count != 1:
-        raise SystemExit(f"ERROR: expected exactly one active <Chase ...> in {path}, changed {count}")
+        raise SystemExit(f"ERROR: 没有找到唯一可修改的 <Chase ...>, 文件: {path}, 修改数量: {count}")
     path.write_text("".join(lines), encoding="utf-8")
-    print(f"Updated {path.name}: arc_walk={value}")
+    print(f"已修改 {path.name}: arc_walk={value}")
 PY
       ;;
     *)
-      echo "ERROR: unknown arc_walk target: ${target}" >&2
+      echo "ERROR: 未知 arc_walk 目标: ${target}" >&2
       return 1
       ;;
   esac
@@ -219,27 +221,27 @@ PY
 
 restore_backup() {
   if [ ! -d "${BACKUP_DIR}" ]; then
-    echo "No backup directory: ${BACKUP_DIR}"
+    echo "没有备份目录: ${BACKUP_DIR}"
     return 0
   fi
 
   mapfile -t dirs < <(find "${BACKUP_DIR}" -maxdepth 1 -mindepth 1 -type d | sort -r)
   if [ "${#dirs[@]}" -eq 0 ]; then
-    echo "No backups found."
+    echo "没有找到备份。"
     return 0
   fi
 
-  echo "Available backups:"
+  echo "可恢复的备份:"
   local i=1
   local dir
   for dir in "${dirs[@]}"; do
     echo "  ${i}) $(basename "${dir}")"
     i=$((i + 1))
   done
-  read -r -p "Choose backup number to restore, or blank to cancel: " choice
+  read -r -p "输入要恢复的备份编号，直接回车取消: " choice
   [ -z "${choice}" ] && return 0
   if ! [[ "${choice}" =~ ^[0-9]+$ ]] || [ "${choice}" -lt 1 ] || [ "${choice}" -gt "${#dirs[@]}" ]; then
-    echo "Invalid choice."
+    echo "选择无效。"
     return 1
   fi
 
@@ -247,7 +249,7 @@ restore_backup() {
   cp "${selected}/config.yaml" "${CONFIG_FILE}"
   cp "${selected}/subtree_striker_play.xml" "${STRIKER_XML}"
   cp "${selected}/subtree_goal_keeper_play.xml" "${GOALIE_XML}"
-  echo "Restored backup: ${selected}"
+  echo "已恢复备份: ${selected}"
 }
 
 ask_bool() {
@@ -257,9 +259,9 @@ ask_bool() {
     read -r -p "${prompt} [true/false]: " value
     case "${value}" in
       true|false) echo "${value}"; return 0 ;;
-      t|T|yes|YES|y|Y|1) echo "true"; return 0 ;;
-      f|F|no|NO|n|N|0) echo "false"; return 0 ;;
-      *) echo "Please input true or false." >&2 ;;
+      t|T|yes|YES|y|Y|1|开|开启) echo "true"; return 0 ;;
+      f|F|no|NO|n|N|0|关|关闭) echo "false"; return 0 ;;
+      *) echo "请输入 true/false，或输入 开/关。" >&2 ;;
     esac
   done
 }
@@ -273,7 +275,7 @@ ask_number() {
       echo "${value}"
       return 0
     fi
-    echo "Please input a number, for example 0, 0.25, 3.5." >&2
+    echo "请输入数字，例如 0、0.25、3.5。" >&2
   done
 }
 
@@ -282,47 +284,47 @@ menu() {
     show_status
     cat <<'MENU'
 
-Test switch TUI
-1) Set striker arc_walk
-2) Set goalie arc_walk
-3) Set both arc_walk
-4) Set strategy.adjust_timeout_secs (0 disables)
-5) Set ball_prediction.enable
-6) Set ball_prediction.use_for_chase
-7) Set ball_prediction.predict_time
-8) Set ball_prediction.lost_prediction_timeout
-9) Set ball_prediction.disable_for_set_play_chase
-b) Restore backup
-q) Quit
+测试开关菜单
+1) 设置前锋 Chase 弧线追球 arc_walk
+2) 设置守门员 Chase 弧线追球 arc_walk
+3) 同时设置前锋和守门员 arc_walk
+4) 设置 Adjust 绕球超时秒数，0 表示关闭
+5) 设置球路预测总开关 enable
+6) 设置球路预测是否接管追球 use_for_chase
+7) 设置球路预测提前量 predict_time
+8) 设置丢球预测保持时间 lost_prediction_timeout
+9) 设置定位球/开球阶段是否禁用预测追球
+b) 恢复备份
+q) 退出
 MENU
-    read -r -p "Choose: " choice
+    read -r -p "请选择: " choice
     case "${choice}" in
       1)
-        set_arc_walk striker "$(ask_bool "striker arc_walk")"
+        set_arc_walk striker "$(ask_bool "前锋 arc_walk，开=true，关=false")"
         ;;
       2)
-        set_arc_walk goalie "$(ask_bool "goalie arc_walk")"
+        set_arc_walk goalie "$(ask_bool "守门员 arc_walk，开=true，关=false")"
         ;;
       3)
-        set_arc_walk all "$(ask_bool "both arc_walk")"
+        set_arc_walk all "$(ask_bool "前锋和守门员 arc_walk，开=true，关=false")"
         ;;
       4)
-        set_yaml_value strategy adjust_timeout_secs "$(ask_number "adjust_timeout_secs seconds, 0 disables")"
+        set_yaml_value strategy adjust_timeout_secs "$(ask_number "Adjust 绕球超时秒数，0 表示关闭")"
         ;;
       5)
-        set_yaml_value ball_prediction enable "$(ask_bool "ball_prediction.enable")"
+        set_yaml_value ball_prediction enable "$(ask_bool "球路预测总开关 enable")"
         ;;
       6)
-        set_yaml_value ball_prediction use_for_chase "$(ask_bool "ball_prediction.use_for_chase")"
+        set_yaml_value ball_prediction use_for_chase "$(ask_bool "球路预测是否接管追球 use_for_chase")"
         ;;
       7)
-        set_yaml_value ball_prediction predict_time "$(ask_number "ball_prediction.predict_time seconds")"
+        set_yaml_value ball_prediction predict_time "$(ask_number "球路预测提前量 predict_time，单位秒")"
         ;;
       8)
-        set_yaml_value ball_prediction lost_prediction_timeout "$(ask_number "ball_prediction.lost_prediction_timeout seconds")"
+        set_yaml_value ball_prediction lost_prediction_timeout "$(ask_number "丢球预测保持时间 lost_prediction_timeout，单位秒")"
         ;;
       9)
-        set_yaml_value ball_prediction disable_for_set_play_chase "$(ask_bool "ball_prediction.disable_for_set_play_chase")"
+        set_yaml_value ball_prediction disable_for_set_play_chase "$(ask_bool "定位球/开球阶段禁用预测追球")"
         ;;
       b|B)
         restore_backup
@@ -331,7 +333,7 @@ MENU
         exit 0
         ;;
       *)
-        echo "Unknown choice: ${choice}"
+        echo "未知选项: ${choice}"
         ;;
     esac
   done
@@ -351,7 +353,7 @@ case "${1:-}" in
     menu
     ;;
   *)
-    echo "Usage: $0 [--status|--backup|--restore]"
+    echo "用法: $0 [--status|--backup|--restore]"
     exit 2
     ;;
 esac
