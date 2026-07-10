@@ -135,6 +135,14 @@ brain_node:
 
     RLVisionKick:
       visual_kick_version: kV2 # kV1 | kV2 修改此参数可更改visualkick调用版本
+      # /kick_ball 消息的 power 字段 (期望踢行距离, m) 计算方式:
+      # distance: power = clamp(球到对方球门距离 + power_overshoot, power_min, power_max), 全场(含中场)都给大脚
+      # legacy:   球距门 <= legacy_full_power_dist 时给 power_max, 否则 power_min (旧行为: 只在对方半场纵深开大脚)
+      power_mode: distance
+      power_min: 2.0
+      power_max: 6.0 # RL 策略已实测过的力度上限; 想中场直接吊门可实测确认策略支持后调大
+      power_overshoot: 4.0 # 留出富余量, 距门 2m 时 power 恰为 6.0, 与旧版近门行为一致
+      legacy_full_power_dist: 6.0
 
     locator:
       min_marker_count: 4

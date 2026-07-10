@@ -156,6 +156,13 @@ public:
     // RLVisionKick 参数
     string RLVisionKickVisualKickVersion; // 对应 RLVisionKick.visual_kick_version  kV1 | kV2
 
+    // RLVisionKick 力度参数, 决定 pubKickMsg 发布到 /kick_ball 的 power 字段 (语义: 期望踢行距离, m)
+    string visualKickPowerMode = "distance"; // distance: power = clamp(球到门距离 + overshoot, min, max); legacy: 距门 legacy_full_power_dist 内给 max, 否则 min
+    double visualKickPowerMin = 2.0;
+    double visualKickPowerMax = 6.0;
+    double visualKickPowerOvershoot = 4.0;      // distance 模式: 期望踢行距离超出球到门距离的余量, 保证球带速到门
+    double visualKickLegacyFullPowerDist = 6.0; // legacy 模式: 球距门小于此值才给大脚
+
     // 计算地面标线与标志点的理论值
     void calcMapLines();
     void calcMapMarkings();
