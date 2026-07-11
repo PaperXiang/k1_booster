@@ -37,6 +37,26 @@ public:
     int oppoLiveCount = 0; // 对方存活机器人数量
     string realGameSubState; // 记录当前处于任意球, 门球等特殊状态. 因为 bb 上的 gc_game_sub_type 做了简化处理, 都看到任意球处理, 所以此处单独记录一下, 以便需要知道具体状态时使用.
 
+    // 身份判定 (方案任务2): GameController 包中我队被裁判机指定的守门员. 这是全队天然一致的权威 GK 身份源.
+    int gcGoalkeeperIdx = -1;      // GC 宣告的我队守门员下标 (playerId-1); -1 = GC 未指定
+    bool gcGoalkeeperAlive = false; // 该守门员当前是否在场 (penalty==NONE)
+    int actingGoalieId = -1;        // 守门->前锋交接产生的"临时守门员" playerId(1-based); -1=无交接. 供角色判定识别, 防原 GK 被拉回守门与临时 GK 并存.
+
+    // lead(控球) 滞回, 防止两机 cost 接近时每 tick 抖动
+    rclcpp::Time tmLastLeadFlipTime; // 上次 lead 状态翻转的时间
+
+    // 开球触球前禁用 vision kick (方案任务1). 由 handleSpecialStates 维护.
+    bool kickoffGuardActive = false;    // true = 我方开球窗口内且第一脚触球未完成, 期间禁止 auto_visual_kick / RLVisionKick
+    bool kickoffGuardBallLocked = false; // 是否已锁存 guard 基准球位
+    Point kickoffGuardBallPos;           // guard 基准球位 (field 系), 触球(球移动)判定用
+    rclcpp::Time kickoffGuardWindowStart; // 开球窗口起点 (摆位期间持续刷新, 进入比赛后开始 10s 倒计时)
+
+    // 站位 (方案任务4). 由 GoToFormationSlot 节点更新, CalcKickDir 消费.
+    string formationSlotName = "";       // 本机当前被分配的槽位语义名 (passer/shooter/kicker/receiver/L1a/...); 空=未分配
+    Pose2D formationPassTarget;          // 进攻开球场景的传球目标点 (field 系), 开球者第一脚小传球指向此处
+    bool formationPassTargetValid = false;
+
+
     /* ------------------------------------ 数据记录 ------------------------------------ */
     
     // 身体位置 & 速度指令

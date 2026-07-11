@@ -65,6 +65,7 @@ void BrainTree::init()
     REGISTER_BUILDER(StepOnSpot)
     REGISTER_BUILDER(GoToFreekickPosition)
     REGISTER_BUILDER(GoToReadyPosition)
+    REGISTER_BUILDER(GoToFormationSlot)
     REGISTER_BUILDER(GoToGoalBlockingPosition)
     REGISTER_BUILDER(TurnOnSpot)
     REGISTER_BUILDER(MoveToPoseOnField)
@@ -132,6 +133,9 @@ void BrainTree::initEntry()
 
     setEntry<bool>("we_just_scored", false);
     setEntry<bool>("wait_for_opponent_kickoff", false);
+
+    // 站位战术 (方案任务4): config 开关透出到黑板, 供 XML _while 在新旧站位节点间互斥分流
+    setEntry<bool>("formation_enable", brain->get_parameter("strategy.formation.enable").as_bool());
 
     // 自动视觉校准相关
     setEntry<string>("calibrate_state", "pitch");
@@ -918,6 +922,29 @@ NodeStatus CalcKickDir::tick()
     auto fd = brain->config->fieldDimensions;
     auto color = 0xFFFFFFFF; // for log
 
+    // (方案任务4+1) 开球 guard 期间, 本机是站位框架分配的开球者: 第一脚固定为小传球, 指向框架给出的接应点.
+    // 保证开球第一脚是"触球传递"而非射门 (规则: 开球第一脚射门不算进球).
+    bool formationEnable = false;
+    brain->get_parameter("strategy.formation.enable", formationEnable);
+    if (formationEnable
+        && brain->data->kickoffGuardActive
+        && brain->data->formationPassTargetValid
+        && (brain->data->formationSlotName == "passer" || brain->data->formationSlotName == "kicker")) {
+        brain->data->kickType = "pass";
+        brain->data->kickDir = atan2(brain->data->formationPassTarget.y - bPos.y,
+                                     brain->data->formationPassTarget.x - bPos.x);
+        brain->log->setTimeNow();
+        brain->log->log(
+            "field/kick_dir",
+            rerun::Arrows2D::from_vectors({{10 * cos(brain->data->kickDir), -10 * sin(brain->data->kickDir)}})
+                .with_origins({{brain->data->ball.posToField.x, -brain->data->ball.posToField.y}})
+                .with_colors({0x00FFFFFF})
+                .with_radii(0.01)
+                .with_draw_order(31)
+        );
+        return NodeStatus::SUCCESS;
+    }
+
     if (thetal - thetar < crossThreshold && brain->data->ball.posToField.x > fd.circleRadius) {
         brain->data->kickType = "cross";
         color = 0xFF00FFFF;
@@ -1066,6 +1093,7 @@ NodeStatus StrikerDecide::tick() {
         color = 0xFFFFFFFF;
     } else if (
         enableAutoVisualKick &&
+        !brain->data->kickoffGuardActive && // (方案任务1) 开球后第一脚触球前, 禁用 vision kick
         brain->data->tmImLead &&
         brain->data->tmMyCostRank == 0 &&
         !brain->tree->getEntry<bool>("ball_out") &&
@@ -1102,7 +1130,7 @@ NodeStatus StrikerDecide::tick() {
         && ball.range < KICK_RANGE
     )
     {
-        if (brain->data->kickType == "cross") newDecision = "cross";
+        if (brain->data->kickType == "cross" || brain->data->kickType == "pass") newDecision = "cross"; // pass(开球小传)复用 cross 的低速趟球动作
         else { // kickType == kick
             double threatThreshold;
             brain->get_parameter("strategy.shoot.threat_threshold", threatThreshold);
@@ -1394,6 +1422,14 @@ rclcpp::Time RLVisionKick::_lastExitTime = rclcpp::Time(0, 0, RCL_ROS_TIME);
 
 NodeStatus RLVisionKick::onStart()
 {
+    // (方案任务1) 兜底: 开球后第一脚触球前, 无论决策链路如何, 都不得进入 RL 视觉踢球模式
+    if (brain->data->kickoffGuardActive) {
+        brain->log->setTimeNow();
+        brain->log->log("debug/RLVisionKick", rerun::TextLog("blocked by kickoff_guard (first touch pending)"));
+        brain->data->tmImInVisualKick = false;
+        return NodeStatus::SUCCESS;
+    }
+
     _startTime = brain->get_clock()->now();
     _isDecelerating = false;
     _visionKickStarted = false;
@@ -3503,6 +3539,137 @@ NodeStatus GoToReadyPosition::tick()
     }
 
     brain->client->moveToPoseOnField2(tx, ty, ttheta, longRangeThreshold, turnThreshold, vxLimit, vyLimit, vthetaLimit, distTolerance / 1.5, distTolerance / 1.5, thetaTolerance, avoidObstacle);
+    return NodeStatus::SUCCESS;
+}
+
+NodeStatus GoToFormationSlot::tick()
+{
+    auto log = [=](string msg) {
+        brain->log->setTimeNow();
+        brain->log->log("debug/GoToFormationSlot", rerun::TextLog(msg));
+    };
+
+    // 场景解析: auto 按 GC 状态选
+    string scene;
+    getInput("scene", scene);
+    if (scene == "auto") {
+        if (brain->tree->getEntry<string>("gc_game_sub_state_type") == "FREE_KICK") {
+            scene = brain->tree->getEntry<bool>("gc_is_sub_state_kickoff_side") ? "freekick_attack" : "freekick_defense";
+        } else {
+            scene = brain->tree->getEntry<bool>("gc_is_kickoff_side") ? "kickoff_attack" : "kickoff_defense";
+        }
+    }
+
+    double vxLimit, vyLimit, distTolerance, thetaTolerance;
+    getInput("vx_limit", vxLimit);
+    getInput("vy_limit", vyLimit);
+    getInput("dist_tolerance", distTolerance);
+    getInput("theta_tolerance", thetaTolerance);
+
+    auto fd = brain->config->fieldDimensions;
+
+    // 守门员不参与阵型槽位: 走守门员 READY 位 (与 GoToReadyPosition 的 GK 分支一致, 不改守门行为)
+    if (brain->tree->getEntry<string>("player_role") == "goal_keeper") {
+        brain->client->moveToPoseOnField2(-fd.length / 2.0 + fd.goalAreaLength, 0.0, 0.0,
+            1.0, 0.4, vxLimit, vyLimit, 1.5, distTolerance, distTolerance, thetaTolerance, true);
+        return NodeStatus::SUCCESS;
+    }
+
+    FormationInput in;
+    in.scene = scene;
+    in.fd = fd;
+    in.selfId = brain->config->playerId;
+    brain->get_parameter("strategy.formation.keep_away_dist", in.keepAwayDist);
+
+    // 球位: 本机可信球位优先, 其次队友共享球位
+    if (brain->tree->getEntry<bool>("ball_location_known")) {
+        in.ballPos = Point2D{brain->data->ball.posToField.x, brain->data->ball.posToField.y};
+        in.ballValid = true;
+    } else if (brain->tree->getEntry<bool>("tm_ball_pos_reliable")) {
+        in.ballPos = Point2D{brain->data->tmBall.posToField.x, brain->data->tmBall.posToField.y};
+        in.ballValid = true;
+    }
+    if (scene == "kickoff_attack" || scene == "kickoff_defense") {
+        if (!in.ballValid) { in.ballPos = Point2D{0.0, 0.0}; in.ballValid = true; } // 开球时球必在中点
+    } else if (!in.ballValid) {
+        // 方案: 必须获得可信球位才执行任意球站位规划 (上层 XML 已有 FindBall 兜底)
+        brain->client->setVelocity(0, 0, 0);
+        return NodeStatus::SUCCESS;
+    }
+
+    // 参与站位的 field players (GC 存活 + 排除守门员), 升序 id. 守门员识别: GC 旗标 > 交接锁存 > 通信角色.
+    int gkId = -1;
+    if (brain->data->gcGoalkeeperIdx >= 0 && brain->data->gcGoalkeeperAlive) gkId = brain->data->gcGoalkeeperIdx + 1;
+    else if (brain->data->actingGoalieId >= 1) gkId = brain->data->actingGoalieId;
+    for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
+        if (brain->data->penalty[i] != PENALTY_NONE) continue;
+        int id = i + 1;
+        if (id == gkId) continue;
+        if (id == in.selfId) { // 本机 (黑板角色已在上方排除守门员)
+            in.playerIds.push_back(id);
+            in.playerPoses.push_back(brain->data->robotPoseToField);
+        } else {
+            if (brain->data->tmStatus[i].role == "goal_keeper") continue;
+            in.playerIds.push_back(id);
+            in.playerPoses.push_back(brain->data->tmStatus[i].robotPoseToField);
+        }
+    }
+    if (in.playerIds.empty()) {
+        brain->client->setVelocity(0, 0, 0);
+        return NodeStatus::SUCCESS;
+    }
+
+    // 最近对手 (freekick_attack 的 blocker 卡位参考)
+    auto robots = brain->data->getRobots();
+    double bestOppDist = 1e9;
+    for (const auto &r : robots) {
+        double d = norm(r.posToField.x - in.ballPos.x, r.posToField.y - in.ballPos.y);
+        if (d < bestOppDist) {
+            bestOppDist = d;
+            in.nearestOpponent = Point2D{r.posToField.x, r.posToField.y};
+            in.hasNearestOpponent = true;
+        }
+    }
+
+    // 冻结与重算: 场景切换 / 存活集合变化 / 球位移超阈值(带去抖, 方案: 开球前球动了站位要调整)
+    double replanThreshold = 0.5, replanDebounce = 500.0;
+    brain->get_parameter("strategy.formation.replan_ball_move_threshold", replanThreshold);
+    brain->get_parameter("strategy.formation.replan_debounce_msecs", replanDebounce);
+    bool assignByDistance = true;
+    brain->get_parameter("strategy.formation.assign_by_distance", assignByDistance);
+
+    bool needReplan = !_frozen || scene != _lastScene || in.playerIds != _lastIds;
+    if (!needReplan) {
+        double moved = norm(in.ballPos.x - _frozenBall.x, in.ballPos.y - _frozenBall.y);
+        if (moved > replanThreshold && brain->msecsSince(_lastReplanTime) > replanDebounce) needReplan = true;
+    }
+    if (needReplan) {
+        _current = FormationPlanner::assign(in, assignByDistance);
+        _frozen = true;
+        _lastScene = scene;
+        _lastIds = in.playerIds;
+        _frozenBall = in.ballPos;
+        _lastReplanTime = brain->get_clock()->now();
+
+        // 透出槽位与传球目标 (开球者的 CalcKickDir 在 kickoff_guard 期间消费)
+        brain->data->formationSlotName = _current.valid ? _current.slotName : "";
+        brain->data->formationPassTargetValid = _current.valid && _current.passTargetValid;
+        if (brain->data->formationPassTargetValid) {
+            brain->data->formationPassTarget = Pose2D{_current.passTarget.x, _current.passTarget.y, 0.0};
+        }
+        log(format("scene=%s players=%d slot=%s target=(%.2f, %.2f, %.2f)",
+            scene.c_str(), (int)in.playerIds.size(),
+            _current.valid ? _current.slotName.c_str() : "none",
+            _current.target.x, _current.target.y, _current.target.theta));
+    }
+
+    if (!_current.valid) {
+        brain->client->setVelocity(0, 0, 0);
+        return NodeStatus::SUCCESS;
+    }
+
+    brain->client->moveToPoseOnField2(_current.target.x, _current.target.y, _current.target.theta,
+        1.2, 0.4, vxLimit, vyLimit, 1.5, distTolerance, distTolerance, thetaTolerance, true);
     return NodeStatus::SUCCESS;
 }
 

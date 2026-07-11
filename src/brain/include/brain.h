@@ -267,6 +267,10 @@ private:
     // 处理多机配合逻辑
     void handleCooperation();
 
+    // 身份判定 (方案任务2): 根据 GC 守门员旗标 + 存活情况, 决定性地分配 player_role.
+    // 规则 R0-R5 见 docs/2026-07-10_方案落地_实施计划.md §4.3. 由 handleCooperation 调用.
+    void updateRoleAssignment(const vector<int> &aliveTmIdxs, int gcAliveCount);
+
     // ------------------------------------------------------ 视觉处理 ------------------------------------------------------
 
     int markCntOnFieldLine(const string MarkType, const FieldLine line, const double margin = 0.2);

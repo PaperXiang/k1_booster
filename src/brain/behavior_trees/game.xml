@@ -66,7 +66,9 @@
                             <Speak text="准备入场" />
                             <!-- DEBUG_VOICE_END -->
                             <MoveHead pitch="0.35" yaw="0.0" />
-                            <GoToReadyPosition  vx_limit="0.7" />
+                            <!-- 站位战术(方案任务4): formation_enable 时按阵型槽位入场(自动区分我方/对方开球), 否则走旧 READY 位. 两分支 _while 互斥 -->
+                            <GoToFormationSlot _while="formation_enable" scene="auto" vx_limit="0.7" />
+                            <GoToReadyPosition _while="!formation_enable" vx_limit="0.7" />
                             <SubTree ID="Locate" _autoremap="true" />
                             <!-- <WaveHand _while="we_just_scored" action="start" /> -->
                         </ReactiveSequence>

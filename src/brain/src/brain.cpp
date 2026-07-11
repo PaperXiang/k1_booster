@@ -312,6 +312,22 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<bool>("strategy.cooperation.enable_role_switch", true);
     declare_parameter<double>("strategy.cooperation.ball_control_cost_threshold", 10.0);
 
+    // 身份判定 (方案任务2)
+    declare_parameter<bool>("strategy.role_assignment.enable", false);
+    declare_parameter<bool>("strategy.role_assignment.gk_takeover", true);
+    declare_parameter<double>("strategy.role_assignment.lead_hold_msecs", 500.0);
+
+    // 开球触球前禁 vision kick (方案任务1)
+    declare_parameter<bool>("strategy.kickoff_guard.enable", false);
+    declare_parameter<double>("strategy.kickoff_guard.ball_move_threshold", 0.3);
+
+    // 站位战术 (方案任务4)
+    declare_parameter<bool>("strategy.formation.enable", false);
+    declare_parameter<bool>("strategy.formation.assign_by_distance", true);
+    declare_parameter<double>("strategy.formation.replan_ball_move_threshold", 0.5);
+    declare_parameter<double>("strategy.formation.replan_debounce_msecs", 500.0);
+    declare_parameter<double>("strategy.formation.keep_away_dist", 1.5);
+
     declare_parameter<int>("obstacle_avoidance.depth_sample_step", 16);
     declare_parameter<double>("obstacle_avoidance.obstacle_min_height", 0.15);
     declare_parameter<double>("obstacle_avoidance.grid_size", 0.2);
@@ -464,6 +480,8 @@ void Brain::init()
         data->tmStatus[i].timeLastCom = now;
     }
     data->tmLastCmdChangeTime = now;
+    data->tmLastLeadFlipTime = now;
+    data->kickoffGuardWindowStart = now;
 
    
     detectionsSubscription = create_subscription<vision_interface::msg::Detections>("/booster_vision/detection", SUB_STATE_QUEUE_SIZE, bind(&Brain::detectionsCallback, this, _1));
@@ -739,6 +757,9 @@ string Brain::buildWebuiStatusJson() {
     oss << ",\"is_kicking_off\":" << (data->isKickingOff ? "true" : "false");
     oss << ",\"is_freekick_kicking_off\":" << (data->isFreekickKickingOff ? "true" : "false");
     oss << ",\"wait_for_opponent_kickoff\":" << (tree->getEntry<bool>("wait_for_opponent_kickoff") ? "true" : "false");
+    oss << ",\"kickoff_guard_active\":" << (data->kickoffGuardActive ? "true" : "false");
+    oss << ",\"gc_goalkeeper_id\":" << (data->gcGoalkeeperIdx >= 0 ? data->gcGoalkeeperIdx + 1 : 0);
+    oss << ",\"acting_goalie_id\":" << data->actingGoalieId;
     oss << "}";
 
     oss << ",\"behavior\":{\"decision\":";
@@ -758,6 +779,8 @@ string Brain::buildWebuiStatusJson() {
     oss << ",\"is_lead_entry\":" << (isLeadEntry ? "true" : "false");
     oss << ",\"tm_im_lead\":" << (data->tmImLead ? "true" : "false");
     oss << ",\"tm_im_alive\":" << (data->tmImAlive ? "true" : "false");
+    oss << ",\"formation_slot\":";
+    appendString(oss, data->formationSlotName);
     oss << ",\"tm_my_cost\":";
     appendNumber(oss, data->tmMyCost);
     oss << ",\"tm_my_cost_rank\":" << data->tmMyCostRank;
@@ -960,6 +983,59 @@ void Brain::handleSpecialStates() {
     if (gameState == "SET") {
         tree->setEntry<bool>("we_just_scored", false);
     }
+
+    // ===== kickoff_guard (方案任务1): 我方开球后、第一脚触球(球移动)前, 禁用 vision kick =====
+    // 规则依据: 开球第一脚射门不算进球, 必须先触球; vision kick 力度大且不受代码接管, 故触球前必须屏蔽.
+    // 触球判定: 球在 field 系的位移超过阈值 (定位与测距可信的帧才参与判定).
+    bool guardEnable = false;
+    get_parameter("strategy.kickoff_guard.enable", guardEnable);
+    // 摆位/等待阶段: 中场开球的 SET 阶段, 或我方任意球的整个 FREE_KICK 二级状态期间
+    bool inKickoffPrep = (gameState == "SET" && isKickoffSide)
+        || (gameState == "PLAY" && gameSubStateType == "FREE_KICK" && isFreekickKickoffSide);
+
+    if (!guardEnable) {
+        data->kickoffGuardActive = false;
+        data->kickoffGuardBallLocked = false;
+    } else {
+        bool ballReliable = data->ballDetected
+            && data->ball.confidence >= config->ballConfidenceThreshold
+            && tree->getEntry<bool>("odom_calibrated");
+
+        if (inKickoffPrep) {
+            // 摆位期间: 持续刷新窗口起点并保持 guard; 持续用可信帧更新基准球位
+            // (对应方案"开球前实时确认球是否动了": 裁判挪球等情况下基准随之更新)
+            data->kickoffGuardActive = true;
+            data->kickoffGuardWindowStart = now;
+            if (ballReliable) {
+                data->kickoffGuardBallPos = data->ball.posToField;
+                data->kickoffGuardBallLocked = true;
+            }
+        } else if (data->kickoffGuardActive) {
+            if (gameState != "PLAY" || msecsSince(data->kickoffGuardWindowStart) > KICKOFF_DURATION * 1000) {
+                // 离开比赛状态, 或开球窗口超时: 解除
+                data->kickoffGuardActive = false;
+                data->kickoffGuardBallLocked = false;
+            } else if (ballReliable) {
+                if (!data->kickoffGuardBallLocked) {
+                    // 摆位期间没拿到可信球位, 用进入比赛后的首个可信帧锁存
+                    data->kickoffGuardBallPos = data->ball.posToField;
+                    data->kickoffGuardBallLocked = true;
+                } else {
+                    double moveThreshold = 0.3;
+                    get_parameter("strategy.kickoff_guard.ball_move_threshold", moveThreshold);
+                    double threshold = max(0.15 * data->ball.range, moveThreshold);
+                    double moved = norm(data->ball.posToField.x - data->kickoffGuardBallPos.x,
+                                        data->ball.posToField.y - data->kickoffGuardBallPos.y);
+                    if (moved > threshold) { // 第一脚触球完成
+                        data->kickoffGuardActive = false;
+                        data->kickoffGuardBallLocked = false;
+                        log->setTimeNow();
+                        log->log("debug/kickoff_guard", rerun::TextLog(format("released: ball moved %.2f > %.2f", moved, threshold)));
+                    }
+                }
+            }
+        }
+    }
 }
 
 void Brain::handleCooperation() {
@@ -1127,18 +1203,24 @@ void Brain::handleCooperation() {
 
     bool switchRole;
     get_parameter("strategy.cooperation.enable_role_switch", switchRole);
-    if (switchRole) {
-        if (data->penalty[selfIdx] == PENALTY_NONE) { 
-            if (gcAliveCount < numOfPlayers) { 
+    bool roleAssignEnable = false;
+    get_parameter("strategy.role_assignment.enable", roleAssignEnable);
+    if (roleAssignEnable) {
+        // 身份判定 (方案任务2): 决定性规则 R0-R5, 见 updateRoleAssignment.
+        updateRoleAssignment(aliveTmIdxs, gcAliveCount);
+    } else if (switchRole) {
+        // 旧行为 (回退用): 缺员即全员 striker; 自己被罚且恰缺一人则自封 goal_keeper.
+        if (data->penalty[selfIdx] == PENALTY_NONE) {
+            if (gcAliveCount < numOfPlayers) {
                 log_("Not full team. I must be Striker");
-                tree->setEntry<string>("player_role", "striker"); 
+                tree->setEntry<string>("player_role", "striker");
             }
-        } else { 
-            if (gcAliveCount == numOfPlayers - 1) { 
+        } else {
+            if (gcAliveCount == numOfPlayers - 1) {
                 log_("I am only on under penalty, I must be goal keeper");
-                tree->setEntry<string>("player_role", "goal_keeper"); 
+                tree->setEntry<string>("player_role", "goal_keeper");
             }
-    
+
         }
     }
 
@@ -1163,15 +1245,28 @@ void Brain::handleCooperation() {
     double BALL_CONTROL_COST_THRESHOLD = 3.0;
     get_parameter("strategy.cooperation.ball_control_cost_threshold", BALL_CONTROL_COST_THRESHOLD);
 
-    if (
+    bool desiredLead = !(
         (tmMinCost < BALL_CONTROL_COST_THRESHOLD && data->tmMyCost > tmMinCost)
         || myCostRank >= 2
-    ) {
+    );
 
+    // lead 滞回: 两机 cost 接近时, lead 每 tick 抖动会导致双方反复抢/让球.
+    // 想翻转 lead 状态时, 距上次翻转须超过 lead_hold_msecs 才允许, 否则维持原状态.
+    double leadHoldMsecs = 0.0;
+    get_parameter("strategy.role_assignment.lead_hold_msecs", leadHoldMsecs);
+    bool newLead = desiredLead;
+    if (leadHoldMsecs > 0.0 && desiredLead != data->tmImLead) {
+        if (msecsSince(data->tmLastLeadFlipTime) < leadHoldMsecs) {
+            newLead = data->tmImLead; // 保持期内, 不翻转
+        } else {
+            data->tmLastLeadFlipTime = get_clock()->now(); // 允许翻转, 记录时刻
+        }
+    }
+
+    if (!newLead) {
         data->tmImLead = false;
         tree->setEntry<bool>("is_lead", false);
         log_("I am not lead");
-
     } else {
         data->tmImLead = true;
         tree->setEntry<bool>("is_lead", true);
@@ -1205,10 +1300,11 @@ void Brain::handleCooperation() {
         }
         if (minIndex >= 0 && myDist > maxDist) {
             data->tmLastCmdChangeTime = get_clock()->now();
-            data->tmMyCmd = 10 + minIndex + 1; 
+            data->tmMyCmd = 10 + minIndex + 1;
             data->tmCmdId += 1;
             data->tmMyCmdId = data->tmCmdId;
             tree->setEntry<string>("player_role", "striker");
+            data->actingGoalieId = minIndex + 1; // 交接给该队友, 他将成为临时守门员
             log_(format("goalie: i am too far from goal, i ask player %d to attack", minIndex + 1));
         } else {
             log_(format("goalie: i am close enough to goal, no need to attack, my dist: %.2f", myDist));
@@ -1225,15 +1321,17 @@ void Brain::handleCooperation() {
             data->tmImLead = false;
             tree->setEntry<bool>("is_lead", false);
             log_("teammate wants to take lead, i'll assist");
-        } else if (cmd > 10 && cmd < 20) { 
+        } else if (cmd > 10 && cmd < 20) {
             log_("goalie wants to attack");
             int newGoalieId = cmd - 10;
-            if (newGoalieId == selfId) { 
+            if (newGoalieId == selfId) {
                 log_("i become goalie");
                 tree->setEntry<string>("player_role", "goal_keeper");
+                data->actingGoalieId = selfId; // 我成为临时守门员
                 speak("i become goalie", true);
-            } else { 
+            } else {
                 log_(format("teammate %d becomes goalie", newGoalieId));
+                data->actingGoalieId = newGoalieId; // 记录临时守门员是谁, 供角色判定避免二次抢守门
             }
         } else {
             log_(format("unknown cmd %d from teammate", cmd));
@@ -1245,15 +1343,114 @@ void Brain::handleCooperation() {
     tree->setEntry<bool>("is_lead", data->tmImLead);
 
     if (
-        (tree->getEntry<string>("gc_game_state") == "READY" || tree->getEntry<string>("gc_game_sub_state") == "GET_READY") 
+        (tree->getEntry<string>("gc_game_state") == "READY" || tree->getEntry<string>("gc_game_sub_state") == "GET_READY")
         && gcAliveCount == numOfPlayers
     ) {
-       
+
         tree->setEntry<string>("player_role", config->playerRole);
+        data->actingGoalieId = -1; // 满员回到初始角色, 清除临时守门交接状态
         log_(format("all teammates on field. Back to initial role: %s", config->playerRole.c_str()));
     }
 
     return;
+}
+
+// 身份判定 (方案任务2): 决定性角色分配 R0-R5. 见 docs/2026-07-10_方案落地_实施计划.md §4.3.
+// 存活集合一律以 GC penalty 数组为准 (全队同源, 与各机通信状况无关), 各机独立计算结果一致;
+// 通信只用于读取队友当前宣称的角色 (tmStatus[].role, 字符串在通信超时后仍保留, 有粘性).
+void Brain::updateRoleAssignment(const vector<int> &aliveTmIdxs, int gcAliveCount)
+{
+    (void)aliveTmIdxs; // 存活判定改用 GC penalty, 保留参数以维持调用点稳定
+    auto log_ = [=](string msg) {
+        log->setTimeNow();
+        log->log("debug/updateRoleAssignment", rerun::TextLog(msg));
+    };
+
+    const int selfId = config->playerId;
+    const int selfIdx = selfId - 1;
+    const string gameState = tree->getEntry<string>("gc_game_state");
+    const string curRole = tree->getEntry<string>("player_role");
+
+    // R0: INITIAL -> 回配置角色. (READY/GET_READY 满员回位由 handleCooperation 末尾既有逻辑处理)
+    if (gameState == "INITIAL") {
+        tree->setEntry<string>("player_role", config->playerRole);
+        data->actingGoalieId = -1;
+        return;
+    }
+
+    // 被罚下的自己不参与角色计算 (不在场上, 回场后按规则重新归位).
+    if (data->penalty[selfIdx] != PENALTY_NONE) {
+        return;
+    }
+
+    bool gkTakeover = true;
+    get_parameter("strategy.role_assignment.gk_takeover", gkTakeover);
+
+    // 全队存活球员 id 升序列表 (纯 GC 数据, 含本机).
+    vector<int> aliveIds;
+    for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
+        if (data->penalty[i] == PENALTY_NONE) aliveIds.push_back(i + 1);
+    }
+
+    // 临时交接守门员若已被罚下, 解除交接锁存.
+    if (data->actingGoalieId >= 1 && data->penalty[data->actingGoalieId - 1] != PENALTY_NONE) {
+        log_(format("acting goalie %d penalized, release", data->actingGoalieId));
+        data->actingGoalieId = -1;
+    }
+
+    // R3: 场上仅剩我一人 (以 GC 为准).
+    if (gcAliveCount <= 1) {
+        // 防守性场景 (仅限对方开球等待期 / 对方任意球) -> 守门; 否则 (含我方开球与普通比赛, 已确认) -> 前锋.
+        bool defensiveScene = tree->getEntry<bool>("wait_for_opponent_kickoff") || isDefensing();
+        string role = defensiveScene ? "goal_keeper" : "striker";
+        if (curRole != role) {
+            tree->setEntry<string>("player_role", role);
+            log_(format("R3: only me alive, scene=%s -> %s", defensiveScene ? "defense" : "attack", role.c_str()));
+        }
+        return;
+    }
+
+    // 确定"应当守门者" desiredGkId. 优先级: 交接锁存 > GC 旗标 > 现有宣称者(小ID, R5 消解) > 选举(R2, 小ID).
+    // 前两级是"识别现任 GK"(不按 ID 猜测); 后两级在无权威信息时决定性收敛.
+    int desiredGkId = -1;
+    string reason;
+    if (data->actingGoalieId >= 1) {
+        // 交接优先于 GC 旗标: 交接发生在旗标之后, 若旗标优先会立即推翻刚完成的守门交接.
+        desiredGkId = data->actingGoalieId;
+        reason = "acting(handover)";
+    } else if (data->gcGoalkeeperIdx >= 0 && data->gcGoalkeeperAlive) {
+        desiredGkId = data->gcGoalkeeperIdx + 1;
+        reason = "gc_flag";
+    } else {
+        // 宣称者: 自己看黑板角色, 队友看通信角色 (有粘性, 防通信丢包时守门员被顶替).
+        vector<int> claimants;
+        for (int id : aliveIds) {
+            if (id == selfId) {
+                if (curRole == "goal_keeper") claimants.push_back(id);
+            } else if (data->tmStatus[id - 1].role == "goal_keeper") {
+                claimants.push_back(id);
+            }
+        }
+        if (!claimants.empty()) {
+            desiredGkId = claimants.front(); // aliveIds 升序遍历, front 即最小 id
+            reason = format("claimants(cnt=%d)", (int)claimants.size());
+            if (claimants.size() >= 2) log_("R5: multiple GK claimants, min id wins");
+        } else if (gkTakeover && !aliveIds.empty()) {
+            desiredGkId = aliveIds.front(); // R2: 无任何守门员 -> 最小存活 id 接任
+            reason = "election(min alive id)";
+        }
+    }
+
+    // 只改自己的角色, 不指挥队友 (各机独立收敛到同一结果).
+    if (desiredGkId == selfId && curRole != "goal_keeper") {
+        tree->setEntry<string>("player_role", "goal_keeper");
+        speak("i take goalie", true);
+        log_(format("-> goal_keeper (%s)", reason.c_str()));
+    } else if (desiredGkId != selfId && curRole == "goal_keeper") {
+        tree->setEntry<string>("player_role", "striker");
+        speak("i attack", true);
+        log_(format("-> striker, GK is player %d (%s)", desiredGkId, reason.c_str()));
+    }
 }
 
 void Brain::updateMemory()
@@ -1954,6 +2151,13 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     bool isKickOffSide = (msg.kick_off_team == config->teamId); // 我方是否是开球方
     tree->setEntry<bool>("gc_is_kickoff_side", isKickOffSide);
 
+    // 球共享 (方案任务3): 进入 INITIAL/READY 时清空队友球共享的"上次可信结果", 防止跨局沿用陈旧球位.
+    // 被罚重进场的清理走 isUnderPenalty 触发 odom_calibrated=false 的路径, 见本函数末尾.
+    if (config->tmBallShareEnable && teammateBall && gameState != lastGameState
+        && (gameState == "INITIAL" || gameState == "READY")) {
+        teammateBall->reset();
+    }
+
     // 处理比赛的二级状态
     string gameSubStateType;
     switch (static_cast<int>(msg.secondary_state)) {
@@ -2034,15 +2238,20 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
 
     int liveCount = 0;
     int oppoLiveCount = 0;
+    int gcGkIdx = -1; // GC 宣告的我队守门员下标
     // 处理判罚状态. penalty[playerId - 1] 代表我方的球员是否处于判罚状态, 处理判罚状态意味着不能移动
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         data->penalty[i] = static_cast<int>(myTeamInfo.players[i].penalty);
-        
+
         if (static_cast<int>(myTeamInfo.players[i].red_card_count) > 0) {
             data->penalty[i] = PENALTY_SUBSTITUTE;
         }
 
         if (data->penalty[i] == PENALTY_NONE) liveCount++;
+
+        // 身份判定 (方案任务2): 读取 GC 包中的守门员旗标, 作为全队一致的权威 GK 身份源
+        if (myTeamInfo.players[i].goal_keeper) gcGkIdx = i;
+
         data->oppoPenalty[i] = static_cast<int>(oppoTeamInfo.players[i].penalty);
 
         if (static_cast<int>(oppoTeamInfo.players[i].red_card_count) > 0) {
@@ -2053,13 +2262,18 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     }
     data->liveCount = liveCount;
     data->oppoLiveCount = oppoLiveCount;
+    data->gcGoalkeeperIdx = gcGkIdx;
+    data->gcGoalkeeperAlive = (gcGkIdx >= 0 && data->penalty[gcGkIdx] == PENALTY_NONE);
 
     // cout << "penalty: " << data->penalty[0] << " " << data->penalty[1] << " " << data->penalty[2] << " " << data->penalty[3] << endl;
     // cout << "oppo penalty: " << data->oppoPenalty[0] << " " << data->oppoPenalty[1] << " " << data->oppoPenalty[2] << " " << data->oppoPenalty[3] << endl;
     bool lastIsUnderPenalty = tree->getEntry<bool>("gc_is_under_penalty");
     bool isUnderPenalty = (data->penalty[config->playerId - 1] != PENALTY_NONE); // 当前 robot 是否被判罚中
     tree->setEntry<bool>("gc_is_under_penalty", isUnderPenalty);
-    if (isUnderPenalty && !lastIsUnderPenalty) tree->setEntry<bool>("odom_calibrated", false); // 被判罚了, 则需要重新进场, 因此需要重新定位
+    if (isUnderPenalty && !lastIsUnderPenalty) {
+        tree->setEntry<bool>("odom_calibrated", false); // 被判罚了, 则需要重新进场, 因此需要重新定位
+        if (config->tmBallShareEnable && teammateBall) teammateBall->reset(); // 重进场需重定位, 清陈旧共享球位
+    }
 
     // log game state   
     log->setTimeNow();
@@ -3774,9 +3988,12 @@ string Brain::getComLogString() {
     }
     ss << "]";
     ss << "  Alive: " << aliveCnt << "  TMCMDID: " << data->tmCmdId << "  ReceivedDMD: " << data->tmReceivedCmd << "\n";
+    ss << "GK: gcFlag=" << (data->gcGoalkeeperIdx >= 0 ? to_string(data->gcGoalkeeperIdx + 1) : "-")
+       << "  acting=" << data->actingGoalieId
+       << "  KickoffGuard: " << (data->kickoffGuardActive ? "ON" : "off") << "\n";
 
     // Self info
-    ss << "Self\tCost: " << format("%.1f", data->tmMyCost) << "\tLead: ";
+    ss << "Self[" << tree->getEntry<string>("player_role") << "]\tCost: " << format("%.1f", data->tmMyCost) << "\tLead: ";
     if (data->tmImLead)
         ss << GREEN_CODE << "YES" << CYAN_CODE;
     else
@@ -3794,6 +4011,7 @@ string Brain::getComLogString() {
         else 
             ss << RED_CODE << "☆" << CYAN_CODE;
         ss << "]\tCost: " << format("%.1f", status.cost);
+        ss << "\tRole: " << status.role;
         ss << "\tLead: ";
         if (status.isLead)
             ss << GREEN_CODE << "YES" << CYAN_CODE;

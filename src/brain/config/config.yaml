@@ -105,8 +105,28 @@ brain_node:
       auto_visual_kick_enable_dist_max: 4.0
       auto_visual_kick_enable_angle: 0.8
       cooperation:
-        enable_role_switch: true 
-        ball_control_cost_threshold: 5.0 
+        enable_role_switch: true
+        ball_control_cost_threshold: 5.0
+
+      # 身份判定 (方案任务2). enable=false 时完全回到旧 switchRole 行为.
+      role_assignment:
+        enable: true
+        gk_takeover: true       # GK 罚下时是否选举最小 ID 存活者接任守门
+        lead_hold_msecs: 500.0  # lead(控球) 滞回, 防两机 cost 接近时抖动
+
+      # 开球后触球前禁用 vision kick (方案任务1). 我方开球/任意球期间, 第一脚必须趟球触球而非 RL 视觉射门.
+      kickoff_guard:
+        enable: true
+        ball_move_threshold: 0.3  # 球在 field 系位移超过 max(0.15*range, 该值) 视为已触球, 解除禁用
+
+      # 站位战术 (方案任务4). 总开关, false=全部回退旧站位节点.
+      formation:
+        enable: false
+        assign_by_distance: true       # 槽位贪心就近分配; false=按 playerId 升序对号
+        replan_ball_move_threshold: 0.5 # 球位移超过此值(m)触发站位重算
+        replan_debounce_msecs: 500.0
+        keep_away_dist: 1.5            # 任意球摆位阶段全员距球合规距离
+
 
     obstacle_avoidance:
       depth_sample_step: 16 
@@ -144,7 +164,7 @@ brain_node:
 
     # 队友间高置信度球位置共享 (独立 package k1_teammate_ball)。传输复用 enable_com 的底层 UDP 通讯。
     teammate_ball_share:
-      enable: false                   # 是否启用高置信度球位共享/融合 (关闭时沿用原有按距离选最近队友球的逻辑)
+      enable: true                    # 是否启用高置信度球位共享/融合 (关闭时沿用原有按距离选最近队友球的逻辑)
       min_confidence_to_share: 50.0   # 自己置信度高于此值才视为可共享 (发送侧/调试用)
       min_confidence_to_trust: 50.0   # 队友球置信度高于此值才纳入融合 (核心: 高置信度门控)
       trust_timeout: 1.0              # 无新可信来源时维持上次结果的最长秒数

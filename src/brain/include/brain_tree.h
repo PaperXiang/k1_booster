@@ -9,6 +9,7 @@
 #include <rclcpp/rclcpp.hpp> 
 
 #include "types.h"
+#include "formation.h"
 
 class Brain;
 
@@ -663,6 +664,31 @@ private:
     Brain *brain;
 };
 
+// 站位槽位节点 (方案任务4): 计算并前往本机的阵型槽位. scene="auto" 按 GC 状态自动选场景.
+// 槽位表/分配算法在 FormationPlanner (formation.h); 本节点负责输入采集(存活/位姿/球位)、冻结与重算、导航执行.
+class GoToFormationSlot : public SyncActionNode
+{
+public:
+    GoToFormationSlot(const std::string &name, const NodeConfig &config, Brain *_brain) : SyncActionNode(name, config), brain(_brain) {}
+    static BT::PortsList providedPorts() {
+        return {
+            InputPort<string>("scene", "auto", "auto | kickoff_attack | kickoff_defense | freekick_attack | freekick_defense"),
+            InputPort<double>("vx_limit", 0.7, ""), InputPort<double>("vy_limit", 0.4, ""),
+            InputPort<double>("dist_tolerance", 0.3, ""), InputPort<double>("theta_tolerance", 0.2, ""),
+        };
+    }
+    BT::NodeStatus tick() override;
+private:
+    Brain *brain;
+    // 冻结的分配结果; 场景切换 / 存活集合变化 / 球位移超阈值(带去抖) 时重算
+    bool _frozen = false;
+    std::string _lastScene;
+    std::vector<int> _lastIds;
+    Point2D _frozenBall{0.0, 0.0};
+    rclcpp::Time _lastReplanTime;
+    FormationResult _current;
+};
+
 class GoToGoalBlockingPosition : public SyncActionNode
 {
 public:
@@ -779,7 +805,8 @@ public:
     GoToFreekickPosition(const string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
     static PortsList providedPorts() {
         return {
-            InputPort<string>("side", "attack", ""), InputPort<double>("attack_dist", 0.7, ""),
+            // attack_dist 0.7 -> 1.5 (方案任务1): 摆位阶段(GET_READY/SET)开球者也须距球 1.5m, 恢复比赛后才接近开球
+            InputPort<string>("side", "attack", ""), InputPort<double>("attack_dist", 1.5, ""),
             InputPort<double>("defense_dist", 1.9, ""), InputPort<double>("vx_limit", 1.2, ""), InputPort<double>("vy_limit", 0.5, ""),
         };
     }
