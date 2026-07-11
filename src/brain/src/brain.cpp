@@ -391,6 +391,11 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<int>("recovery.retry_max_count", 2);
 
     declare_parameter<string>("RLVisionKick.visual_kick_version", "kV2");
+    declare_parameter<string>("RLVisionKick.power_mode", "distance");
+    declare_parameter<double>("RLVisionKick.power_min", 2.0);
+    declare_parameter<double>("RLVisionKick.power_max", 6.0);
+    declare_parameter<double>("RLVisionKick.power_overshoot", 4.0);
+    declare_parameter<double>("RLVisionKick.legacy_full_power_dist", 6.0);
 }
 
 Brain::~Brain()
@@ -585,6 +590,11 @@ void Brain::loadConfig()
     get_parameter("sound.sound_pack", config->soundPack);
 
     get_parameter("RLVisionKick.visual_kick_version", config->RLVisionKickVisualKickVersion);
+    get_parameter("RLVisionKick.power_mode", config->visualKickPowerMode);
+    get_parameter("RLVisionKick.power_min", config->visualKickPowerMin);
+    get_parameter("RLVisionKick.power_max", config->visualKickPowerMax);
+    get_parameter("RLVisionKick.power_overshoot", config->visualKickPowerOvershoot);
+    get_parameter("RLVisionKick.legacy_full_power_dist", config->visualKickLegacyFullPowerDist);
 
     get_parameter("tree_file_path", config->treeFilePath);
 
@@ -934,10 +944,11 @@ void Brain::pubKickMsg() {
     dist = std::abs(dist);
     double power = 0.0;
 
-    if (dist > 6.0) {
-        power = 2.0;
-    } else {
-        power = 6.0;
+    if (config->visualKickPowerMode == "legacy") {
+        power = dist > config->visualKickLegacyFullPowerDist ? config->visualKickPowerMin : config->visualKickPowerMax;
+    } else { // distance
+        power = std::min(dist + config->visualKickPowerOvershoot, config->visualKickPowerMax);
+        power = std::max(power, config->visualKickPowerMin);
     }
     kickMsg.power = power;
 

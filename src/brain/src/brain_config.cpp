@@ -270,6 +270,13 @@ void BrainConfig::handle()
         throw invalid_argument("[Error] RLVisionKick.visual_kick_version must be one of [kV1, kV2]. Got: " + RLVisionKickVisualKickVersion);
     }
 
+    if (visualKickPowerMode != "distance" && visualKickPowerMode != "legacy") {
+        throw invalid_argument("[Error] RLVisionKick.power_mode must be one of [distance, legacy]. Got: " + visualKickPowerMode);
+    }
+    if (visualKickPowerMin > visualKickPowerMax) {
+        throw invalid_argument("[Error] RLVisionKick.power_min must be <= power_max.");
+    }
+
     calcMapLines();
     calcMapMarkings();
 }
@@ -322,5 +329,10 @@ void BrainConfig::print(ostream &os)
     os << "----------------------------------------" << endl;
     os << "RLVisionKick:" << endl;
     os << "    visualKickVersion = " << RLVisionKickVisualKickVersion << endl;
+    os << "    powerMode = " << visualKickPowerMode << endl;
+    os << "    powerMin = " << visualKickPowerMin << endl;
+    os << "    powerMax = " << visualKickPowerMax << endl;
+    os << "    powerOvershoot = " << visualKickPowerOvershoot << endl;
+    os << "    legacyFullPowerDist = " << visualKickLegacyFullPowerDist << endl;
     os << "----------------------------------------" << endl;
 }
