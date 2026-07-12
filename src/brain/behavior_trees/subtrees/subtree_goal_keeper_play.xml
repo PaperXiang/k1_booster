@@ -8,17 +8,11 @@
          <SubTree ID="Locate" _autoremap="true" _while="decision!='find'" />
          <ReactiveSequence _while="wait_for_opponent_kickoff" name="等待对方开球">
             <!-- <PrintMsg msg="等待对方开球"/> -->
-            <!-- DEBUG_VOICE_START -->
-            <Speak text="等待对方开球" />
-            <!-- DEBUG_VOICE_END -->
             <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
             <SetVelocity />
          </ReactiveSequence>
          <ReactiveSequence _while="!wait_for_opponent_kickoff" name="已方开球或对方已经开球">
             <Sequence _while="ball_out">
-               <!-- DEBUG_VOICE_START -->
-               <Speak text="球出界回场" />
-               <!-- DEBUG_VOICE_END -->
                <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                <!-- <SetVelocity /> -->
                <GoBackInField />
@@ -38,9 +32,6 @@
                      <!-- <CamTrackBall /> -->
                      <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                      <GoalieDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
-                     <!-- DEBUG_VOICE_START -->
-                     <Speak text="守门员找球" _while="decision=='find'" />
-                     <!-- DEBUG_VOICE_END -->
                      <GoToGoalBlockingPosition _while="decision=='find'" theta_tolerance="0.2" />
                      <!-- <SubTree ID="FindBall" _while="decision=='find'" _autoremap="true" /> -->
 
@@ -49,9 +40,6 @@
                      <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.3"  vtheta_limit="1.0"  dist="0.4" safe_dist="0.6" arc_walk="true" />
                      <Adjust  _while="decision == 'adjust'" turn_threshold="0.2" range="0.3" vx_limit="0.3" vy_limit="0.2" vtheta_limit="1.0"  />
                      <Sequence  _while="decision == 'kick'">
-                        <!-- DEBUG_VOICE_START -->
-                        <Speak text="lets gooooo" />
-                        <!-- DEBUG_VOICE_END -->
                         <!-- <SetVelocity />
                         <Sleep msec="1000" /> -->
                         <Kick speed_limit="1.2" min_msec_kick="600"/>
