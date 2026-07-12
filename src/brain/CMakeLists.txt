@@ -84,6 +84,7 @@ install(DIRECTORY behavior_trees
   DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
   # comment the line when a copyright and license is added to all source files
@@ -93,6 +94,13 @@ if(BUILD_TESTING)
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(formation_test
+    test/formation_test.cpp
+    src/formation.cpp)
+  target_include_directories(formation_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  ament_target_dependencies(formation_test rclcpp)
 endif()
 
 ament_package()

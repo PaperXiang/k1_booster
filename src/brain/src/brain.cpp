@@ -316,14 +316,17 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<bool>("strategy.role_assignment.enable", false);
     declare_parameter<bool>("strategy.role_assignment.gk_takeover", true);
     declare_parameter<double>("strategy.role_assignment.lead_hold_msecs", 500.0);
+    declare_parameter<double>("strategy.role_assignment.handover_confirm_timeout_msecs", 2000.0);
 
     // 开球触球前禁 vision kick (方案任务1)
     declare_parameter<bool>("strategy.kickoff_guard.enable", false);
     declare_parameter<double>("strategy.kickoff_guard.ball_move_threshold", 0.3);
+    declare_parameter<int>("strategy.kickoff_guard.move_confirm_frames", 3);
+    declare_parameter<double>("strategy.kickoff_guard.localization_jump_threshold", 0.25);
 
     // 站位战术 (方案任务4)
     declare_parameter<bool>("strategy.formation.enable", false);
-    declare_parameter<bool>("strategy.formation.assign_by_distance", true);
+    declare_parameter<bool>("strategy.formation.assign_by_distance", false);
     declare_parameter<double>("strategy.formation.replan_ball_move_threshold", 0.5);
     declare_parameter<double>("strategy.formation.replan_debounce_msecs", 500.0);
     declare_parameter<double>("strategy.formation.keep_away_dist", 1.5);
@@ -1007,6 +1010,7 @@ void Brain::handleSpecialStates() {
     if (!guardEnable) {
         data->kickoffGuardActive = false;
         data->kickoffGuardBallLocked = false;
+        data->kickoffGuardMoveConfirmCount = 0;
     } else {
         bool ballReliable = data->ballDetected
             && data->ball.confidence >= config->ballConfidenceThreshold
@@ -1019,29 +1023,56 @@ void Brain::handleSpecialStates() {
             data->kickoffGuardWindowStart = now;
             if (ballReliable) {
                 data->kickoffGuardBallPos = data->ball.posToField;
+                data->kickoffGuardOdomToField = data->odomToField;
                 data->kickoffGuardBallLocked = true;
+                data->kickoffGuardMoveConfirmCount = 0;
             }
         } else if (data->kickoffGuardActive) {
             if (gameState != "PLAY" || msecsSince(data->kickoffGuardWindowStart) > KICKOFF_DURATION * 1000) {
                 // 离开比赛状态, 或开球窗口超时: 解除
                 data->kickoffGuardActive = false;
                 data->kickoffGuardBallLocked = false;
+                data->kickoffGuardMoveConfirmCount = 0;
             } else if (ballReliable) {
                 if (!data->kickoffGuardBallLocked) {
                     // 摆位期间没拿到可信球位, 用进入比赛后的首个可信帧锁存
                     data->kickoffGuardBallPos = data->ball.posToField;
+                    data->kickoffGuardOdomToField = data->odomToField;
                     data->kickoffGuardBallLocked = true;
+                    data->kickoffGuardMoveConfirmCount = 0;
                 } else {
                     double moveThreshold = 0.3;
                     get_parameter("strategy.kickoff_guard.ball_move_threshold", moveThreshold);
+                    int requiredConfirmFrames = 3;
+                    get_parameter("strategy.kickoff_guard.move_confirm_frames", requiredConfirmFrames);
+                    requiredConfirmFrames = max(requiredConfirmFrames, 1);
+                    double localizationJumpThreshold = 0.25;
+                    get_parameter("strategy.kickoff_guard.localization_jump_threshold", localizationJumpThreshold);
                     double threshold = max(0.15 * data->ball.range, moveThreshold);
                     double moved = norm(data->ball.posToField.x - data->kickoffGuardBallPos.x,
                                         data->ball.posToField.y - data->kickoffGuardBallPos.y);
-                    if (moved > threshold) { // 第一脚触球完成
+                    double localizationShift = norm(data->odomToField.x - data->kickoffGuardOdomToField.x,
+                                                    data->odomToField.y - data->kickoffGuardOdomToField.y);
+                    if (localizationShift > localizationJumpThreshold) {
+                        // field 坐标发生明显整体修正时，静止球也会看似移动；重新建立稳定基准。
+                        data->kickoffGuardBallPos = data->ball.posToField;
+                        data->kickoffGuardOdomToField = data->odomToField;
+                        data->kickoffGuardMoveConfirmCount = 0;
+                        log->setTimeNow();
+                        log->log("debug/kickoff_guard", rerun::TextLog(format(
+                            "relocked after localization shift %.2f > %.2f", localizationShift, localizationJumpThreshold)));
+                    } else if (moved > threshold) {
+                        data->kickoffGuardMoveConfirmCount++;
+                    } else {
+                        data->kickoffGuardMoveConfirmCount = 0;
+                    }
+                    if (data->kickoffGuardMoveConfirmCount >= requiredConfirmFrames) { // 第一脚触球完成
                         data->kickoffGuardActive = false;
                         data->kickoffGuardBallLocked = false;
+                        data->kickoffGuardMoveConfirmCount = 0;
                         log->setTimeNow();
-                        log->log("debug/kickoff_guard", rerun::TextLog(format("released: ball moved %.2f > %.2f", moved, threshold)));
+                        log->log("debug/kickoff_guard", rerun::TextLog(format(
+                            "released: ball moved %.2f > %.2f for %d frames", moved, threshold, requiredConfirmFrames)));
                     }
                 }
             }
@@ -1286,10 +1317,37 @@ void Brain::handleCooperation() {
     log_(format("tmMinCost: %.1f, myCost: %.1f, myCostRank: %d, myStrikerIDRank: %d", tmMinCost, data->tmMyCost, myCostRank, myStrikerIDRank));
 
 
+    // 原 GK 只有在周期状态中观察到接任者已声明 goal_keeper 后才退出。
+    // 请求丢失、目标离线或超时均保持原角色，避免出现无人守门。
+    if (data->pendingGoalieId >= 1) {
+        double confirmTimeoutMsecs = 2000.0;
+        get_parameter("strategy.role_assignment.handover_confirm_timeout_msecs", confirmTimeoutMsecs);
+        const int pendingIdx = data->pendingGoalieId - 1;
+        const bool targetConfirmed = data->tmStatus[pendingIdx].isAlive
+            && data->tmStatus[pendingIdx].role == "goal_keeper"
+            && msecsSince(data->tmStatus[pendingIdx].timeLastCom) <= COM_TIMEOUT;
+        const bool targetUnavailable = data->penalty[pendingIdx] != PENALTY_NONE
+            || msecsSince(data->tmStatus[pendingIdx].timeLastCom) > COM_TIMEOUT;
+        const bool requestTimedOut = msecsSince(data->pendingGoalieRequestTime) > confirmTimeoutMsecs;
+
+        if (targetConfirmed) {
+            data->actingGoalieId = data->pendingGoalieId;
+            tree->setEntry<string>("player_role", "striker");
+            log_(format("goalie handover confirmed by player %d", data->pendingGoalieId));
+            data->pendingGoalieId = -1;
+        } else if (targetUnavailable || requestTimedOut) {
+            log_(format("goalie handover to player %d cancelled (%s)", data->pendingGoalieId,
+                targetUnavailable ? "target unavailable" : "confirmation timeout"));
+            data->pendingGoalieId = -1;
+            data->tmMyCmd = 0;
+        }
+    }
+
     if (
         data->tmImAlive 
         && tree->getEntry<string>("player_role") == "goal_keeper"
         && data->tmImLead 
+        && data->pendingGoalieId < 0
         && msecsSince(data->tmLastCmdChangeTime) > CMD_COOLDOWN 
     ) {
         auto distToGoal = [=](Pose2D pose) {
@@ -1314,9 +1372,9 @@ void Brain::handleCooperation() {
             data->tmMyCmd = 10 + minIndex + 1;
             data->tmCmdId += 1;
             data->tmMyCmdId = data->tmCmdId;
-            tree->setEntry<string>("player_role", "striker");
-            data->actingGoalieId = minIndex + 1; // 交接给该队友, 他将成为临时守门员
-            log_(format("goalie: i am too far from goal, i ask player %d to attack", minIndex + 1));
+            data->pendingGoalieId = minIndex + 1;
+            data->pendingGoalieRequestTime = get_clock()->now();
+            log_(format("goalie: request player %d to take goal; keep guarding until confirmed", minIndex + 1));
         } else {
             log_(format("goalie: i am close enough to goal, no need to attack, my dist: %.2f", myDist));
         }
@@ -1360,6 +1418,7 @@ void Brain::handleCooperation() {
 
         tree->setEntry<string>("player_role", config->playerRole);
         data->actingGoalieId = -1; // 满员回到初始角色, 清除临时守门交接状态
+        data->pendingGoalieId = -1;
         log_(format("all teammates on field. Back to initial role: %s", config->playerRole.c_str()));
     }
 
@@ -1386,6 +1445,7 @@ void Brain::updateRoleAssignment(const vector<int> &aliveTmIdxs, int gcAliveCoun
     if (gameState == "INITIAL") {
         tree->setEntry<string>("player_role", config->playerRole);
         data->actingGoalieId = -1;
+        data->pendingGoalieId = -1;
         return;
     }
 

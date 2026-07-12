@@ -41,6 +41,8 @@ public:
     int gcGoalkeeperIdx = -1;      // GC 宣告的我队守门员下标 (playerId-1); -1 = GC 未指定
     bool gcGoalkeeperAlive = false; // 该守门员当前是否在场 (penalty==NONE)
     int actingGoalieId = -1;        // 守门->前锋交接产生的"临时守门员" playerId(1-based); -1=无交接. 供角色判定识别, 防原 GK 被拉回守门与临时 GK 并存.
+    int pendingGoalieId = -1;       // 原 GK 正在等待该球员通过周期角色状态确认接任; 确认前原 GK 继续守门.
+    rclcpp::Time pendingGoalieRequestTime;
 
     // lead(控球) 滞回, 防止两机 cost 接近时每 tick 抖动
     rclcpp::Time tmLastLeadFlipTime; // 上次 lead 状态翻转的时间
@@ -49,6 +51,8 @@ public:
     bool kickoffGuardActive = false;    // true = 我方开球窗口内且第一脚触球未完成, 期间禁止 auto_visual_kick / RLVisionKick
     bool kickoffGuardBallLocked = false; // 是否已锁存 guard 基准球位
     Point kickoffGuardBallPos;           // guard 基准球位 (field 系), 触球(球移动)判定用
+    Pose2D kickoffGuardOdomToField;       // 锁存球位时的定位变换, 用于识别 field 系单帧跳变
+    int kickoffGuardMoveConfirmCount = 0; // 连续超过移动阈值的可信观测数
     rclcpp::Time kickoffGuardWindowStart; // 开球窗口起点 (摆位期间持续刷新, 进入比赛后开始 10s 倒计时)
 
     // 站位 (方案任务4). 由 GoToFormationSlot 节点更新, CalcKickDir 消费.

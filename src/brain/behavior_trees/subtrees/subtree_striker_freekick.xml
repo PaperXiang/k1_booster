@@ -8,13 +8,21 @@
             <CamTrackBall _while="ball_location_known" />
             <CalcKickDir />
             <SubTree ID="FindBall" _while="!(ball_location_known || tm_ball_pos_reliable)" _autoremap="true" />
-            <GoToFreekickPosition _while="ball_location_known || tm_ball_pos_reliable" side="attack" vx_limit="0.7" vy_limit="0.4" />
+            <ReactiveFallback _while="formation_enable &amp;&amp; (ball_location_known || tm_ball_pos_reliable)">
+               <GoToFormationSlot scene="freekick_attack" vx_limit="0.7" vy_limit="0.4" />
+               <GoToFreekickPosition side="attack" vx_limit="0.7" vy_limit="0.4" />
+            </ReactiveFallback>
+            <GoToFreekickPosition _while="!formation_enable &amp;&amp; (ball_location_known || tm_ball_pos_reliable)" side="attack" vx_limit="0.7" vy_limit="0.4" />
          </ReactiveSequence>
          <ReactiveSequence _while="!gc_is_sub_state_kickoff_side" name="移动到防守点球位置">
             <CamTrackBall _while="ball_location_known" />
             <CalcKickDir />
             <SubTree ID="FindBall" _while="!(ball_location_known || tm_ball_pos_reliable)" _autoremap="true" />
-            <GoToFreekickPosition _while="ball_location_known || tm_ball_pos_reliable" side="defense" />
+            <ReactiveFallback _while="formation_enable &amp;&amp; (ball_location_known || tm_ball_pos_reliable)">
+               <GoToFormationSlot scene="freekick_defense" />
+               <GoToFreekickPosition side="defense" />
+            </ReactiveFallback>
+            <GoToFreekickPosition _while="!formation_enable &amp;&amp; (ball_location_known || tm_ball_pos_reliable)" side="defense" />
          </ReactiveSequence>
       </ReactiveSequence>
    </BehaviorTree>

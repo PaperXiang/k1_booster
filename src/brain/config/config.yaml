@@ -1,13 +1,13 @@
 brain_node:
   ros__parameters:
     game:
-      team_id: 66 # consistant with GameControl
-      player_id: 3 # 1 | 2 | 3 | 4 | 5
+      team_id: 31 # consistant with GameControl
+      player_id: 1 # 1 | 2 | 3 | 4 | 5
       field_type: "adult_size" # adult_size | kid_size | robo_league
       player_role: "striker" # striker | goal_keeper
       player_start_pos: "right" # right | left
       treat_person_as_robot: false # 是否将人类视为机器人, 用于调试. !!!! 正式比赛时, 必须设置为 false !!!!
-      number_of_players: 5
+      number_of_players: 3
     
     ball_predictor: 
       step_interval: 100. 
@@ -113,16 +113,19 @@ brain_node:
         enable: true
         gk_takeover: true       # GK 罚下时是否选举最小 ID 存活者接任守门
         lead_hold_msecs: 500.0  # lead(控球) 滞回, 防两机 cost 接近时抖动
+        handover_confirm_timeout_msecs: 2000.0 # 原 GK 等待接任者周期角色确认的最长时间; 超时保持原 GK
 
       # 开球后触球前禁用 vision kick (方案任务1). 我方开球/任意球期间, 第一脚必须趟球触球而非 RL 视觉射门.
       kickoff_guard:
         enable: true
         ball_move_threshold: 0.3  # 球在 field 系位移超过 max(0.15*range, 该值) 视为已触球, 解除禁用
+        move_confirm_frames: 3     # 连续可信观测均超过阈值才确认触球, 抑制单帧跳变
+        localization_jump_threshold: 0.25 # odom->field 平移突变超过此值(m)时重锁基准
 
       # 站位战术 (方案任务4). 总开关, false=全部回退旧站位节点.
       formation:
         enable: false
-        assign_by_distance: true       # 槽位贪心就近分配; false=按 playerId 升序对号
+        assign_by_distance: false      # 3v3 默认按 playerId 确定性对号; true 仅用于多机验证后的实验性就近分配
         replan_ball_move_threshold: 0.5 # 球位移超过此值(m)触发站位重算
         replan_debounce_msecs: 500.0
         keep_away_dist: 1.5            # 任意球摆位阶段全员距球合规距离

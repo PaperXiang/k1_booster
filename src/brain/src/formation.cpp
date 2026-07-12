@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <limits>
 
 #include "utils/math.h"
 
@@ -15,49 +16,115 @@ double faceTo(const Pose2D &from, double tx, double ty) {
     return atan2(ty - from.y, tx - from.x);
 }
 
-// 槽位合法性夹紧: 场内收边 / 防守不进本方禁区 / 对方开球不入中圈 / 任意球距球 >= keepAway
-void clampSlot(const FormationInput &in, Pose2D &p) {
+constexpr double kPi = 3.14159265358979323846;
+constexpr double kFieldMargin = 0.5;
+constexpr double kPenaltyMargin = 0.25;
+constexpr double kConstraintTolerance = 1e-6;
+
+bool isSlotLegal(const FormationInput &in, const Pose2D &pose) {
     const auto &fd = in.fd;
+    const double maxX = fd.length / 2.0 - kFieldMargin;
+    const double maxY = fd.width / 2.0 - kFieldMargin;
+    if (pose.x < -maxX - kConstraintTolerance || pose.x > maxX + kConstraintTolerance
+        || pose.y < -maxY - kConstraintTolerance || pose.y > maxY + kConstraintTolerance) {
+        return false;
+    }
 
-    // 场内收边 0.5m
-    p.x = cap(p.x, fd.length / 2.0 - 0.5, -fd.length / 2.0 + 0.5);
-    p.y = cap(p.y, fd.width / 2.0 - 0.5, -fd.width / 2.0 + 0.5);
-
-    // 防守场景不进本方禁区 (禁区留给守门员)
-    if (in.scene == "kickoff_defense" || in.scene == "freekick_defense") {
-        double paFrontX = -fd.length / 2.0 + fd.penaltyAreaLength;
-        if (p.x < paFrontX + 0.25 && fabs(p.y) < fd.penaltyAreaWidth / 2.0 + 0.25) {
-            p.x = paFrontX + 0.25;
+    const bool defensiveScene = in.scene == "kickoff_defense" || in.scene == "freekick_defense";
+    if (defensiveScene) {
+        const double penaltyFrontX = -fd.length / 2.0 + fd.penaltyAreaLength + kPenaltyMargin;
+        const double penaltyHalfWidth = fd.penaltyAreaWidth / 2.0 + kPenaltyMargin;
+        if (pose.x < penaltyFrontX - kConstraintTolerance
+            && fabs(pose.y) < penaltyHalfWidth - kConstraintTolerance) {
+            return false;
         }
     }
 
-    // 对方开球: 规则要求在本方半场且不得进入中圈
     if (in.scene == "kickoff_defense") {
-        if (p.x > -0.3) p.x = -0.3;
-        double r = norm(p.x, p.y);
-        double minR = fd.circleRadius + 0.3;
-        if (r < minR) {
-            if (r < 1e-3) {
-                p.x = -minR;
-            } else {
-                p.x = p.x / r * minR;
-                p.y = p.y / r * minR;
-            }
-            if (p.x > -0.3) p.x = -0.3;
+        const double minimumRadius = fd.circleRadius + 0.3;
+        if (pose.x > -0.3 + kConstraintTolerance || norm(pose.x, pose.y) < minimumRadius - kConstraintTolerance) {
+            return false;
         }
     }
 
-    // 任意球: 摆位阶段所有槽位距球 >= keepAwayDist (方案确认: 全员含开球者)
-    if ((in.scene == "freekick_attack" || in.scene == "freekick_defense") && in.ballValid) {
-        double d = norm(p.x - in.ballPos.x, p.y - in.ballPos.y);
-        if (d < in.keepAwayDist - 1e-6) {
-            double dir = d < 1e-3
-                ? atan2(-in.ballPos.y, -fd.length / 2.0 - in.ballPos.x) // 与球重合时朝本方球门方向退让
-                : atan2(p.y - in.ballPos.y, p.x - in.ballPos.x);
-            p.x = in.ballPos.x + in.keepAwayDist * cos(dir);
-            p.y = in.ballPos.y + in.keepAwayDist * sin(dir);
+    const bool freeKickScene = in.scene == "freekick_attack" || in.scene == "freekick_defense";
+    if (freeKickScene && in.ballValid
+        && norm(pose.x - in.ballPos.x, pose.y - in.ballPos.y) < in.keepAwayDist - kConstraintTolerance) {
+        return false;
+    }
+
+    return true;
+}
+
+void projectNonBallConstraints(const FormationInput &in, Pose2D &pose) {
+    const auto &fd = in.fd;
+    const double maxX = fd.length / 2.0 - kFieldMargin;
+    const double maxY = fd.width / 2.0 - kFieldMargin;
+    pose.x = cap(pose.x, maxX, -maxX);
+    pose.y = cap(pose.y, maxY, -maxY);
+
+    if (in.scene == "kickoff_defense" || in.scene == "freekick_defense") {
+        const double penaltyFrontX = -fd.length / 2.0 + fd.penaltyAreaLength + kPenaltyMargin;
+        const double penaltyHalfWidth = fd.penaltyAreaWidth / 2.0 + kPenaltyMargin;
+        if (pose.x < penaltyFrontX && fabs(pose.y) < penaltyHalfWidth) {
+            pose.x = penaltyFrontX;
         }
     }
+
+    if (in.scene == "kickoff_defense") {
+        pose.x = min(pose.x, -0.3);
+        const double radius = norm(pose.x, pose.y);
+        const double minimumRadius = fd.circleRadius + 0.3;
+        if (radius < minimumRadius) {
+            if (radius < 1e-3) {
+                pose.x = -minimumRadius;
+            } else {
+                pose.x = pose.x / radius * minimumRadius;
+                pose.y = pose.y / radius * minimumRadius;
+            }
+            pose.x = min(pose.x, -0.3);
+        }
+    }
+}
+
+bool legalizeSlot(const FormationInput &in, Pose2D &pose) {
+    const Pose2D requestedPose = pose;
+    projectNonBallConstraints(in, pose);
+    if (isSlotLegal(in, pose)) return true;
+
+    const bool freeKickScene = in.scene == "freekick_attack" || in.scene == "freekick_defense";
+    if (!freeKickScene || !in.ballValid) return false;
+
+    bool foundCandidate = false;
+    double bestDistanceSquared = numeric_limits<double>::max();
+    Pose2D bestCandidate;
+    constexpr int kAngularSamples = 72;
+    constexpr int kRadialSamples = 4;
+    for (int radialIndex = 0; radialIndex < kRadialSamples; radialIndex++) {
+        const double radius = in.keepAwayDist + radialIndex * 0.25;
+        for (int angleIndex = 0; angleIndex < kAngularSamples; angleIndex++) {
+            const double angle = 2.0 * kPi * angleIndex / kAngularSamples;
+            Pose2D candidate{
+                in.ballPos.x + radius * cos(angle),
+                in.ballPos.y + radius * sin(angle),
+                requestedPose.theta
+            };
+            if (!isSlotLegal(in, candidate)) continue;
+
+            const double deltaX = candidate.x - requestedPose.x;
+            const double deltaY = candidate.y - requestedPose.y;
+            const double distanceSquared = deltaX * deltaX + deltaY * deltaY;
+            if (distanceSquared < bestDistanceSquared) {
+                bestDistanceSquared = distanceSquared;
+                bestCandidate = candidate;
+                foundCandidate = true;
+            }
+        }
+    }
+
+    if (!foundCandidate) return false;
+    pose = bestCandidate;
+    return true;
 }
 
 } // namespace
@@ -158,9 +225,11 @@ vector<FormationSlot> FormationPlanner::slotsForScene(const FormationInput &in) 
         else slots = {{"W1c", w1c}};
     }
 
-    // 人数截断 + 合法性夹紧
+    // 人数截断 + 联合合法化。任一重要槽位无合法解时返回空，让上层走旧站位回退。
     if (static_cast<int>(slots.size()) > n) slots.resize(n);
-    for (auto &s : slots) clampSlot(in, s.pose);
+    for (auto &slot : slots) {
+        if (!legalizeSlot(in, slot.pose)) return {};
+    }
     return slots;
 }
 

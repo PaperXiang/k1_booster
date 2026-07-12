@@ -57,8 +57,11 @@
 
                         <ReactiveSequence _while="gc_game_state=='READY'" name="走到场内自己的起始位置">
                             <MoveHead pitch="0.35" yaw="0.0" />
-                            <!-- 站位战术(方案任务4): formation_enable 时按阵型槽位入场(自动区分我方/对方开球), 否则走旧 READY 位. 两分支 _while 互斥 -->
-                            <GoToFormationSlot _while="formation_enable" scene="auto" vx_limit="0.7" />
+                            <!-- 新阵型规划失败时立即回退旧 READY 位，避免停在非法或空目标。 -->
+                            <ReactiveFallback _while="formation_enable">
+                                <GoToFormationSlot scene="auto" vx_limit="0.7" />
+                                <GoToReadyPosition vx_limit="0.7" />
+                            </ReactiveFallback>
                             <GoToReadyPosition _while="!formation_enable" vx_limit="0.7" />
                             <SubTree ID="Locate" _autoremap="true" />
                             <!-- <WaveHand _while="we_just_scored" action="start" /> -->

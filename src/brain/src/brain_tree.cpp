@@ -3594,7 +3594,7 @@ NodeStatus GoToFormationSlot::tick()
     } else if (!in.ballValid) {
         // 方案: 必须获得可信球位才执行任意球站位规划 (上层 XML 已有 FindBall 兜底)
         brain->client->setVelocity(0, 0, 0);
-        return NodeStatus::SUCCESS;
+        return NodeStatus::FAILURE;
     }
 
     // 参与站位的 field players (GC 存活 + 排除守门员), 升序 id. 守门员识别: GC 旗标 > 交接锁存 > 通信角色.
@@ -3616,7 +3616,7 @@ NodeStatus GoToFormationSlot::tick()
     }
     if (in.playerIds.empty()) {
         brain->client->setVelocity(0, 0, 0);
-        return NodeStatus::SUCCESS;
+        return NodeStatus::FAILURE;
     }
 
     // 最近对手 (freekick_attack 的 blocker 卡位参考)
@@ -3665,7 +3665,7 @@ NodeStatus GoToFormationSlot::tick()
 
     if (!_current.valid) {
         brain->client->setVelocity(0, 0, 0);
-        return NodeStatus::SUCCESS;
+        return NodeStatus::FAILURE;
     }
 
     brain->client->moveToPoseOnField2(_current.target.x, _current.target.y, _current.target.theta,
