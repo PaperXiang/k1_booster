@@ -3597,10 +3597,9 @@ NodeStatus GoToFormationSlot::tick()
         return NodeStatus::FAILURE;
     }
 
-    // 参与站位的 field players (GC 存活 + 排除守门员), 升序 id. 守门员识别: GC 旗标 > 交接锁存 > 通信角色.
-    int gkId = -1;
-    if (brain->data->gcGoalkeeperIdx >= 0 && brain->data->gcGoalkeeperAlive) gkId = brain->data->gcGoalkeeperIdx + 1;
-    else if (brain->data->actingGoalieId >= 1) gkId = brain->data->actingGoalieId;
+    // 参与站位的 field players (GC 存活 + 排除守门员), 升序 id。
+    // 与角色状态机共用同一 GK 判定，避免交接后阵型仍排除旧 GK。
+    const int gkId = brain->getEffectiveGoalkeeperId();
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         if (brain->data->penalty[i] != PENALTY_NONE) continue;
         int id = i + 1;

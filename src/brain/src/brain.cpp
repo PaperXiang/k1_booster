@@ -1425,6 +1425,27 @@ void Brain::handleCooperation() {
     return;
 }
 
+int Brain::getEffectiveGoalkeeperId() const
+{
+    const int actingGoalieId = data->actingGoalieId;
+    const bool actingGoalieIsAvailable = actingGoalieId >= 1
+        && actingGoalieId <= HL_MAX_NUM_PLAYERS
+        && data->penalty[actingGoalieId - 1] == PENALTY_NONE;
+    if (actingGoalieIsAvailable) {
+        return actingGoalieId;
+    }
+
+    const bool gameControllerGoalieIsAvailable = data->gcGoalkeeperIdx >= 0
+        && data->gcGoalkeeperIdx < HL_MAX_NUM_PLAYERS
+        && data->gcGoalkeeperAlive
+        && data->penalty[data->gcGoalkeeperIdx] == PENALTY_NONE;
+    if (gameControllerGoalieIsAvailable) {
+        return data->gcGoalkeeperIdx + 1;
+    }
+
+    return -1;
+}
+
 // 身份判定 (方案任务2): 决定性角色分配 R0-R5. 见 docs/2026-07-10_方案落地_实施计划.md §4.3.
 // 存活集合一律以 GC penalty 数组为准 (全队同源, 与各机通信状况无关), 各机独立计算结果一致;
 // 通信只用于读取队友当前宣称的角色 (tmStatus[].role, 字符串在通信超时后仍保留, 有粘性).
@@ -1481,17 +1502,14 @@ void Brain::updateRoleAssignment(const vector<int> &aliveTmIdxs, int gcAliveCoun
         return;
     }
 
-    // 确定"应当守门者" desiredGkId. 优先级: 交接锁存 > GC 旗标 > 现有宣称者(小ID, R5 消解) > 选举(R2, 小ID).
-    // 前两级是"识别现任 GK"(不按 ID 猜测); 后两级在无权威信息时决定性收敛.
+    // 确定"应当守门者" desiredGkId. 权威身份统一由 getEffectiveGoalkeeperId() 提供，
+    // 其后才使用现有宣称者或最小存活 ID 进行冲突消解与缺位接任。
     int desiredGkId = -1;
     string reason;
-    if (data->actingGoalieId >= 1) {
-        // 交接优先于 GC 旗标: 交接发生在旗标之后, 若旗标优先会立即推翻刚完成的守门交接.
-        desiredGkId = data->actingGoalieId;
-        reason = "acting(handover)";
-    } else if (data->gcGoalkeeperIdx >= 0 && data->gcGoalkeeperAlive) {
-        desiredGkId = data->gcGoalkeeperIdx + 1;
-        reason = "gc_flag";
+    const int effectiveGoalkeeperId = getEffectiveGoalkeeperId();
+    if (effectiveGoalkeeperId >= 1) {
+        desiredGkId = effectiveGoalkeeperId;
+        reason = effectiveGoalkeeperId == data->actingGoalieId ? "acting(handover)" : "gc_flag";
     } else {
         // 宣称者: 自己看黑板角色, 队友看通信角色 (有粘性, 防通信丢包时守门员被顶替).
         vector<int> claimants;

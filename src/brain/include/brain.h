@@ -245,6 +245,9 @@ public:
 
     double calcAvoidDir(double startAngle, double safeDist);
 
+    // 返回当前比赛逻辑认可的守门员 playerId。已确认的临时交接优先于仍未更新的 GC 旗标。
+    int getEffectiveGoalkeeperId() const;
+
 
 private:
     void loadConfig();
