@@ -89,6 +89,19 @@ export type FieldInfo = {
   goal_area_width?: number | null;
 };
 
+export const LOG_SOURCES = ['brain', 'game_controller', 'vision'] as const;
+
+export type LogSource = (typeof LOG_SOURCES)[number];
+
+export type LogStreamEvent = {
+  type: 'history' | 'append';
+  robot_id: string;
+  source: LogSource;
+  lines: string[];
+  reset: boolean;
+  received_at?: number;
+};
+
 export type RobotSnapshot = {
   robot_id: string;
   online: boolean;

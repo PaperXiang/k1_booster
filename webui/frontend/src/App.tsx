@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { fetchLatest, fetchRobots, getApiBase, getWsBase } from './api';
 import FieldView from './components/FieldView';
+import LogPanel from './components/LogPanel';
 import StatusCard from './components/StatusCard';
 import type { FieldEntity, FieldLineInfo, GameObject, RobotSnapshot } from './types';
 
@@ -190,6 +191,8 @@ export default function App() {
       </section>
 
       <div className="grid">
+        <LogPanel robotId={selectedRobotId} />
+
         <StatusCard title="Behavior">
           <div className="badges">
             {badge(behavior.decision === 'find', 'Find')}

@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from .schemas import HeartbeatPayload, TelemetryPayload
+from .schemas import HeartbeatPayload, LogSource, LogUploadPayload, TelemetryPayload
+from .services.log_registry import log_registry
 from .services.robot_registry import registry
 
 
@@ -35,6 +36,33 @@ async def telemetry(robot_id: str, payload: TelemetryPayload):
     return await registry.telemetry(robot_id, payload.dict())
 
 
+@app.post("/api/robots/{robot_id}/logs")
+async def upload_logs(robot_id: str, payload: LogUploadPayload):
+    if payload.robot_id != robot_id:
+        raise HTTPException(status_code=400, detail="robot_id mismatch")
+    if len(payload.batches) > 12:
+        raise HTTPException(status_code=413, detail="too many log batches")
+
+    results = []
+    for batch in payload.batches:
+        if len(batch.lines) > 500:
+            raise HTTPException(status_code=413, detail="too many lines in log batch")
+        if any(len(line) > 16384 for line in batch.lines):
+            raise HTTPException(status_code=413, detail="log line is too long")
+
+        normalized_lines = [line.rstrip("\r\n") for line in batch.lines]
+        results.append(
+            await log_registry.append(
+                robot_id,
+                batch.source,
+                normalized_lines,
+                batch.reset,
+            )
+        )
+
+    return {"robot_id": robot_id, "batches": results}
+
+
 @app.get("/api/robots")
 async def robots():
     return await registry.list_robots()
@@ -46,6 +74,15 @@ async def latest(robot_id: str):
     if robot is None:
         raise HTTPException(status_code=404, detail="robot not found")
     return robot
+
+
+@app.get("/api/robots/{robot_id}/logs/{source}")
+async def recent_logs(
+    robot_id: str,
+    source: LogSource,
+    limit: int = Query(default=500, ge=1, le=2000),
+):
+    return await log_registry.recent(robot_id, source, limit)
 
 
 @app.websocket("/ws/robots/{robot_id}")
@@ -60,3 +97,16 @@ async def robot_socket(websocket: WebSocket, robot_id: str):
             await websocket.receive_text()
     except WebSocketDisconnect:
         await registry.remove_socket(robot_id, websocket)
+
+
+@app.websocket("/ws/robots/{robot_id}/logs/{source}")
+async def robot_log_socket(websocket: WebSocket, robot_id: str, source: LogSource):
+    await websocket.accept()
+    try:
+        await log_registry.subscribe(robot_id, source, websocket)
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await log_registry.remove_socket(robot_id, source, websocket)

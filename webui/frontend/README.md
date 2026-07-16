@@ -1,21 +1,21 @@
-# WebUI Frontend
+# WebUI 前端
 
-Vite + React dashboard for robot telemetry.
+用于展示机器人遥测数据的 Vite + React 仪表盘。
 
-## Run
+## 运行
 
 ```bash
 npm install
 npm run dev
 ```
 
-By default the frontend connects to `http://localhost:8000`. To use another backend:
+默认情况下，前端会连接到 `http://localhost:8000`。如需使用其他后端地址：
 
 ```bash
 VITE_API_BASE_URL=http://192.168.1.100:8000 npm run dev
 ```
 
-On Windows PowerShell:
+在 Windows PowerShell 中：
 
 ```powershell
 $env:VITE_API_BASE_URL="http://192.168.1.100:8000"

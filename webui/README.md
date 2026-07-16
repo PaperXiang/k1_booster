@@ -1,16 +1,17 @@
-# K1 Robot WebUI
+# K1 机器人 WebUI
 
-This WebUI shows robot status on a computer in the same LAN. The robot does not run a web server; it publishes ROS status locally and the `k1_robot_webui_client` package actively posts telemetry to this backend.
+该 WebUI 用于在与机器人处于同一局域网的计算机上显示机器人状态。机器人本身不运行 Web 服务器；它会在本地发布 ROS 状态，而 `k1_robot_webui_client` 软件包会主动将遥测数据发送到此后端。
 
-## Architecture
+## 架构
 
 ```text
-brain_node -> /brain/status_json -> k1_robot_webui_client -> FastAPI backend -> browser frontend
+brain_node -> /brain/status_json -> k1_robot_webui_client -> FastAPI 后端 -> 浏览器前端
+brain.log / game_controller.log / vision.log -> k1_robot_webui_client -> FastAPI 后端 -> 浏览器日志栏
 ```
 
-## PC backend
+## PC 后端
 
-Run on the computer that should receive robot status:
+在需要接收机器人状态的计算机上运行：
 
 ```powershell
 cd d:\booster\K1_5v5_Demo_v1.6\webui\backend
@@ -20,13 +21,13 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Important:
+注意：
 
-- Use `--host 0.0.0.0`, not `127.0.0.1`, so the robot can reach the backend.
-- Allow TCP port `8000` in Windows Firewall.
-- Find this computer's LAN IP, for example `192.168.1.100`, and put it in the robot client config.
+- 请使用 `--host 0.0.0.0`，而不是 `127.0.0.1`，以便机器人能够访问后端。
+- 在 Windows 防火墙中允许 TCP `8000` 端口。
+- 获取本机的局域网 IP，例如 `192.168.1.100`，并将其填入机器人客户端配置。
 
-## PC frontend
+## PC 前端
 
 ```powershell
 cd d:\booster\K1_5v5_Demo_v1.6\webui\frontend
@@ -34,30 +35,30 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite, usually:
+打开 Vite 输出的 URL，通常为：
 
 ```text
 http://localhost:5173
 ```
 
-If the backend is not on `localhost:8000`, set `VITE_API_BASE_URL` before starting the frontend.
+如果后端不在 `localhost:8000`，请在启动前端前设置 `VITE_API_BASE_URL`。
 
-## Robot client
+## 机器人客户端
 
-Edit the backend address in:
+在以下文件中编辑后端地址：
 
 ```text
 src/k1_robot_webui_client/config/webui_client.yaml
 ```
 
-Example:
+示例：
 
 ```yaml
 server_base_url: "http://192.168.1.100:8000"
 robot_id: "k1-3"
 ```
 
-Build and run on the robot:
+在机器人上构建并运行：
 
 ```bash
 colcon build --packages-select brain k1_robot_webui_client
@@ -65,18 +66,25 @@ source install/setup.bash
 ros2 launch k1_robot_webui_client webui_client.launch.py
 ```
 
-The robot client subscribes to `/brain/status_json`, sends heartbeat messages, and posts the latest status to the PC backend.
+机器人客户端订阅 `/brain/status_json`，发送心跳消息，将最新状态发送至 PC 后端，并持续读取三个进程日志。单独启动客户端时，可以显式指定日志所在目录：
 
-## What the first version displays
+```bash
+ros2 launch k1_robot_webui_client webui_client.launch.py log_directory:=$PWD
+```
 
-- Online/offline state and last-seen age.
-- Player id, role, game state, and current decision.
-- Whether the robot is in `chase`, `adjust`, or `RLVisionKick`.
-- Ball detection, range, yaw, confidence, and field position.
-- Ball prediction enable/use/valid state, predicted ball, velocity, acceleration, and trajectory.
-- Robot pose on a simple 2D field.
-- Vision/GameController/localization health lag.
+`scripts/start.sh` 会自动传入工作区根目录。日志栏保留有界的近期历史，实时追加新日志，并支持在 Brain、Game Controller 和 Vision 之间切换。
 
-## Safety note
+## 第一版显示的内容
 
-This first version is display-only. If control buttons are added later, keep HTTP commands low-frequency, add a token, add command whitelisting, set timeouts, and require confirmation for dangerous actions.
+- 在线/离线状态以及距离上次出现的时间。
+- 球员 ID、角色、比赛状态和当前决策。
+- 机器人是否处于 `chase`、`adjust` 或 `RLVisionKick` 状态。
+- 足球检测结果、距离、偏航角、置信度和场地位置。
+- 足球预测的启用/使用/有效状态、预测足球、速度、加速度和轨迹。
+- 简单二维场地中的机器人位姿。
+- 视觉、GameController 和定位的健康状态延迟。
+- Brain、Game Controller 和 Vision 实时控制台日志，支持来源切换和跟随末尾滚动。
+
+## 安全说明
+
+第一版仅用于显示。若未来添加控制按钮，请保持 HTTP 命令的低频率，加入令牌认证和命令白名单，设置超时，并要求对危险操作进行确认。

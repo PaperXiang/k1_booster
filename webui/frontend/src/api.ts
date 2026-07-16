@@ -1,4 +1,4 @@
-import type { RobotSnapshot } from './types';
+import type { LogSource, RobotSnapshot } from './types';
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -15,6 +15,10 @@ export function getWsBase(): string {
     return `ws://${base.slice('http://'.length)}`;
   }
   return base;
+}
+
+export function getRobotLogWsUrl(robotId: string, source: LogSource): string {
+  return `${getWsBase()}/ws/robots/${encodeURIComponent(robotId)}/logs/${source}`;
 }
 
 export async function fetchRobots(): Promise<RobotSnapshot[]> {

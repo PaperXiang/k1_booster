@@ -5,3 +5,12 @@ webui_client_node:
     heartbeat_period_sec: 1.0
     telemetry_period_sec: 0.2
     request_timeout_sec: 0.5
+    log_directory: "."
+    brain_log_file: "brain.log"
+    game_controller_log_file: "game_controller.log"
+    vision_log_file: "vision.log"
+    log_poll_period_sec: 0.5
+    log_initial_line_count: 300
+    log_batch_line_count: 200
+    log_read_byte_limit: 65536
+    log_pending_batch_limit: 120
