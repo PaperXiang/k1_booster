@@ -295,7 +295,14 @@ export default function FieldView({ snapshot }: FieldViewProps) {
   // 球速矢量 (验证球路预测方向) —— 从球沿速度方向画一条短线 (0.6s 提前量)
   const velocity = status?.prediction?.velocity;
   let velocitySeg: FieldSegment | null = null;
-  if (ball && isRecord(velocity) && isFiniteNumber(velocity.x) && isFiniteNumber(velocity.y)) {
+  if (
+    ball
+    && isFiniteNumber(ball.raw.x)
+    && isFiniteNumber(ball.raw.y)
+    && isRecord(velocity)
+    && isFiniteNumber(velocity.x)
+    && isFiniteNumber(velocity.y)
+  ) {
     const speed = Math.hypot(velocity.x, velocity.y);
     if (speed > 0.15) {
       const end = mapPoint({ x: ball.raw.x + velocity.x * 0.6, y: ball.raw.y + velocity.y * 0.6 }, fieldLength, fieldWidth);
